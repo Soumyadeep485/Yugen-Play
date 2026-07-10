@@ -39,7 +39,7 @@ class AnimeSection extends StatelessWidget {
         const SizedBox(height: 12),
 
         SizedBox(
-          height: 260,
+          height: 310,
 
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
@@ -50,7 +50,7 @@ class AnimeSection extends StatelessWidget {
               return AnimeCard(anime: animeList[index]);
             },
 
-            separatorBuilder: (_, __) => const SizedBox(width: 14),
+            separatorBuilder: (context, index) => const SizedBox(width: 14),
 
             itemCount: animeList.length,
           ),

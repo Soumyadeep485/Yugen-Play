@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../../core/radius/app_radius.dart';
 import '../../../shared/models/anime.dart';
+import '../../details/anime_details_screen.dart';
 
 class AnimeCard extends StatelessWidget {
   final Anime anime;
@@ -13,45 +15,63 @@ class AnimeCard extends StatelessWidget {
     return SizedBox(
       width: 140,
 
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadius.md),
 
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+        onTap: anime.id > 0
+            ? () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AnimeDetailsScreen(animeId: anime.id),
+                  ),
+                );
+              }
+            : null,
 
-            child: CachedNetworkImage(
-              imageUrl: anime.imageUrl,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
 
-              height: 200,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
 
-              width: 140,
+              child: Hero(
+                tag: 'anime-${anime.id}',
 
-              fit: BoxFit.cover,
+                child: CachedNetworkImage(
+                  imageUrl: anime.imageUrl,
 
-              placeholder: (context, url) =>
-                  Container(color: Colors.grey.shade900),
+                  height: 200,
 
-              errorWidget: (context, url, error) => const Icon(Icons.error),
+                  width: 140,
+
+                  fit: BoxFit.cover,
+
+                  placeholder: (context, url) =>
+                      Container(color: Colors.grey.shade900),
+
+                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                ),
+              ),
             ),
-          ),
 
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
 
-          Text(
-            anime.title,
+            Text(
+              anime.title,
 
-            maxLines: 2,
+              maxLines: 2,
 
-            overflow: TextOverflow.ellipsis,
+              overflow: TextOverflow.ellipsis,
 
-            style: const TextStyle(
-              color: Colors.white,
-
-              fontWeight: FontWeight.bold,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

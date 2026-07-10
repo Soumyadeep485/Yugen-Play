@@ -7,6 +7,8 @@ class YugenPlayApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('B. App build() called');
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Yugen Play',
