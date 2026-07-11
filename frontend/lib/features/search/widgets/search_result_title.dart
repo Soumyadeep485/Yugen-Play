@@ -19,7 +19,10 @@ class SearchResultTile extends StatelessWidget {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => AnimeDetailsScreen(animeId: anime.id),
+            builder: (_) => AnimeDetailsScreen(
+              animeId: anime.id,
+              heroTag: 'Search_${anime.id}',
+            ),
           ),
         );
       },

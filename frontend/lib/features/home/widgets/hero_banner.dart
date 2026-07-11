@@ -28,7 +28,7 @@ class HeroBanner extends StatelessWidget {
 
             children: [
               Hero(
-                tag: 'anime-${anime.id}',
+                tag: 'HeroBanner_${anime.id}',
                 child: CachedNetworkImage(
                   imageUrl: anime.imageUrl,
                   fit: BoxFit.cover,
@@ -187,6 +187,7 @@ class HeroBanner extends StatelessWidget {
                                         MaterialPageRoute(
                                           builder: (_) => AnimeDetailsScreen(
                                             animeId: anime.id,
+                                            heroTag: 'HeroBanner_${anime.id}',
                                           ),
                                         ),
                                       );

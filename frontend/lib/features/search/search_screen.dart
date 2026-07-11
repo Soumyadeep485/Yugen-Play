@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import '../../shared/models/anime.dart';
-import '../../shared/repositories/anime_repository.dart';
-import '../../shared/services/api_service.dart';
+import 'data/search_repository.dart';
 import '../../core/colors/app_colors.dart';
 import 'widgets/search_result_title.dart';
 
@@ -14,10 +13,9 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
-  // final SearchHistoryService historyService = SearchHistoryService();
+  final SearchRepository repository = SearchRepository();
 
   List<String> recentSearches = [];
-  final AnimeRepository repository = AnimeRepository(ApiService());
 
   final TextEditingController searchController = TextEditingController();
 

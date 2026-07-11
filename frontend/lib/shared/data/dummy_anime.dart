@@ -1,11 +1,14 @@
 import '../models/anime.dart';
 
 const Anime featuredAnime = Anime(
-  id: 38000,
-  title: "Demon Slayer",
-  imageUrl: "https://picsum.photos/900/600",
-  genres: ["Action", "Adventure"],
-  rating: 9.4,
+  id: 1,
+  title: "Solo Leveling",
+  nativeTitle: null,
+  imageUrl: "...",
+  bannerImage: null,
+  genres: ["Action"],
+  rating: 9.1,
   type: "TV",
-  episodes: 26,
+  episodes: 12,
+  seasonYear: 2024,
 );

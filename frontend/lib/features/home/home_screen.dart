@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-
+import 'data/home_repository.dart';
 import '../../shared/models/home_data.dart';
-import '../../shared/repositories/anime_repository.dart';
-import '../../shared/services/api_service.dart';
 
 import 'widgets/anime_section.dart';
 import 'widgets/custom_bottom_nav.dart';
@@ -17,7 +15,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final AnimeRepository repository = AnimeRepository(ApiService());
+  final HomeRepository repository = HomeRepository();
 
   late final Future<HomeData> homeDataFuture;
 
@@ -41,39 +39,11 @@ class _HomeScreenState extends State<HomeScreen> {
             }
 
             if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.cloud_off_rounded,
-                        color: Colors.white54,
-                        size: 48,
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      const Text(
-                        'Unable to load Yugen Play',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-
-                      const Text(
-                        'Check your connection and try again.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white60, fontSize: 14),
-                      ),
-                    ],
-                  ),
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: SelectableText(
+                  snapshot.error.toString(),
+                  style: const TextStyle(color: Colors.red, fontSize: 14),
                 ),
               );
             }

@@ -3,7 +3,7 @@ class AnimeDetails {
   final String title;
   final String? japaneseTitle;
   final String imageUrl;
-  final String? trailerUrl;
+  final String? bannerImage;
   final String synopsis;
   final List<String> genres;
   final double rating;
@@ -19,7 +19,7 @@ class AnimeDetails {
     required this.title,
     required this.japaneseTitle,
     required this.imageUrl,
-    required this.trailerUrl,
+    required this.bannerImage,
     required this.synopsis,
     required this.genres,
     required this.rating,
@@ -31,45 +31,42 @@ class AnimeDetails {
     required this.studios,
   });
 
-  factory AnimeDetails.fromJson(Map<String, dynamic> json) {
+  factory AnimeDetails.fromGraphQL(Map<String, dynamic> json) {
     return AnimeDetails(
-      id: (json["mal_id"] as num?)?.toInt() ?? 0,
+      id: (json["id"] as num).toInt(),
 
-      title:
-          json["title_english"]?.toString() ??
-          json["title"]?.toString() ??
-          "Unknown",
+      title: json["title"]?["english"] ?? json["title"]?["romaji"] ?? "Unknown",
 
-      japaneseTitle: json["title_japanese"]?.toString(),
+      japaneseTitle: json["title"]?["native"],
 
-      imageUrl:
-          json["images"]?["jpg"]?["large_image_url"]?.toString() ??
-          json["images"]?["jpg"]?["image_url"]?.toString() ??
-          "",
+      imageUrl: json["coverImage"]?["extraLarge"] ?? "",
 
-      trailerUrl: json["trailer"]?["url"]?.toString(),
+      bannerImage: json["bannerImage"],
 
-      synopsis: json["synopsis"]?.toString() ?? "No synopsis available.",
+      synopsis: json["description"] ?? "No synopsis available.",
 
-      genres: (json["genres"] as List? ?? [])
-          .map((genre) => genre["name"]?.toString() ?? "Unknown")
-          .toList(),
+      genres:
+          (json["genres"] as List?)?.map((e) => e.toString()).toList() ?? [],
 
-      rating: (json["score"] as num?)?.toDouble() ?? 0.0,
+      rating: ((json["averageScore"] ?? 0) as num).toDouble() / 10,
 
-      type: json["type"]?.toString() ?? "Unknown",
+      type: json["format"] ?? "Unknown",
 
       episodes: (json["episodes"] as num?)?.toInt(),
 
-      status: json["status"]?.toString() ?? "Unknown",
+      status: json["status"] ?? "Unknown",
 
-      duration: json["duration"]?.toString() ?? "Unknown",
+      duration: json["duration"] != null
+          ? "${json["duration"]} min"
+          : "Unknown",
 
-      year: (json["year"] as num?)?.toInt(),
+      year: (json["seasonYear"] as num?)?.toInt(),
 
-      studios: (json["studios"] as List? ?? [])
-          .map((studio) => studio["name"]?.toString() ?? "Unknown")
-          .toList(),
+      studios:
+          (json["studios"]?["nodes"] as List?)
+              ?.map((e) => e["name"].toString())
+              .toList() ??
+          [],
     );
   }
 }

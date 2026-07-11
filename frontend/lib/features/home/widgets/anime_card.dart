@@ -7,8 +7,9 @@ import '../../details/anime_details_screen.dart';
 
 class AnimeCard extends StatelessWidget {
   final Anime anime;
+  final String heroTag;
 
-  const AnimeCard({super.key, required this.anime});
+  const AnimeCard({super.key, required this.anime, required this.heroTag});
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +24,8 @@ class AnimeCard extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => AnimeDetailsScreen(animeId: anime.id),
+                    builder: (_) =>
+                        AnimeDetailsScreen(animeId: anime.id, heroTag: heroTag),
                   ),
                 );
               }
@@ -37,7 +39,7 @@ class AnimeCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
 
               child: Hero(
-                tag: 'anime-${anime.id}',
+                tag: heroTag,
 
                 child: CachedNetworkImage(
                   imageUrl: anime.imageUrl,

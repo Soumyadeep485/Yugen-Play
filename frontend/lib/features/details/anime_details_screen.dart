@@ -4,8 +4,7 @@ import 'widgets/details_loading.dart';
 import '../../core/colors/app_colors.dart';
 import '../../core/radius/app_radius.dart';
 import '../../shared/models/anime_details.dart';
-import '../../shared/repositories/anime_repository.dart';
-import '../../shared/services/api_service.dart';
+import 'data/details_repository.dart';
 import 'widgets/expandable_synopsis.dart';
 import 'widgets/info_card.dart';
 import '../../shared/widgets/buttons/icon_circle_button.dart';
@@ -13,19 +12,24 @@ import '../../../shared/widgets/buttons/primary_button.dart';
 
 class AnimeDetailsScreen extends StatefulWidget {
   final int animeId;
+  final String heroTag;
 
-  const AnimeDetailsScreen({super.key, required this.animeId});
+  const AnimeDetailsScreen({
+    super.key,
+    required this.animeId,
+    required this.heroTag,
+  });
 
   @override
   State<AnimeDetailsScreen> createState() => _AnimeDetailsScreenState();
 }
 
 class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
-  final AnimeRepository repository = AnimeRepository(ApiService());
+  final DetailsRepository repository = DetailsRepository();
 
   void _loadAnime() {
     setState(() {
-      animeDetailsFuture = repository.getAnimeDetails(widget.animeId);
+      animeDetailsFuture = DetailsRepository().getAnimeDetails(widget.animeId);
     });
   }
 
@@ -102,7 +106,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                     fit: StackFit.expand,
                     children: [
                       Hero(
-                        tag: 'anime-${anime.id}',
+                        tag: widget.heroTag,
                         child: CachedNetworkImage(
                           imageUrl: anime.imageUrl,
                           fit: BoxFit.cover,

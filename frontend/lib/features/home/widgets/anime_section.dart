@@ -47,7 +47,10 @@ class AnimeSection extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20),
 
             itemBuilder: (context, index) {
-              return AnimeCard(anime: animeList[index]);
+              return AnimeCard(
+                anime: animeList[index],
+                heroTag: '${title}_${animeList[index].id}',
+              );
             },
 
             separatorBuilder: (context, index) => const SizedBox(width: 14),
