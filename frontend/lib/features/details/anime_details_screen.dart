@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'widgets/details_loading.dart';
+import '../player/data/player_repository.dart';
+import '../player/services/stream_service.dart';
 import '../../core/colors/app_colors.dart';
 import '../../core/radius/app_radius.dart';
 import '../../shared/models/anime_details.dart';
+import '../../shared/widgets/buttons/icon_circle_button.dart';
+import '../../shared/widgets/buttons/primary_button.dart';
+import '../player/controllers/player_controller.dart';
+import '../player/player_screen.dart';
 import 'data/details_repository.dart';
+import 'widgets/details_loading.dart';
 import 'widgets/expandable_synopsis.dart';
 import 'widgets/info_card.dart';
-import '../../shared/widgets/buttons/icon_circle_button.dart';
-import '../../../shared/widgets/buttons/primary_button.dart';
 
 class AnimeDetailsScreen extends StatefulWidget {
   final int animeId;
@@ -25,21 +29,24 @@ class AnimeDetailsScreen extends StatefulWidget {
 }
 
 class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
-  final DetailsRepository repository = DetailsRepository();
-
-  void _loadAnime() {
-    setState(() {
-      animeDetailsFuture = DetailsRepository().getAnimeDetails(widget.animeId);
-    });
-  }
-
-  Future<AnimeDetails>? animeDetailsFuture;
+  final DetailsRepository _repository = DetailsRepository();
+  late Future<AnimeDetails> _animeDetailsFuture;
 
   @override
   void initState() {
     super.initState();
-
+    // Do NOT wrap this in setState. It is initialized before the first build.
     _loadAnime();
+  }
+
+  void _loadAnime() {
+    _animeDetailsFuture = _repository.getAnimeDetails(widget.animeId);
+  }
+
+  void _retryLoad() {
+    setState(() {
+      _loadAnime();
+    });
   }
 
   @override
@@ -47,7 +54,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: FutureBuilder<AnimeDetails>(
-        future: animeDetailsFuture!,
+        future: _animeDetailsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const DetailsLoading();
@@ -55,7 +62,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
 
           if (snapshot.hasError) {
             return _DetailsErrorState(
-              onRetry: _loadAnime,
+              onRetry: _retryLoad,
               onBack: () => Navigator.pop(context),
             );
           }
@@ -78,7 +85,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                 pinned: true,
                 backgroundColor: AppColors.background,
                 surfaceTintColor: Colors.transparent,
-
                 leading: Padding(
                   padding: const EdgeInsets.all(8),
                   child: IconCircleButton(
@@ -86,7 +92,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
-
                 actions: [
                   Padding(
                     padding: const EdgeInsets.only(
@@ -100,7 +105,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                     ),
                   ),
                 ],
-
                 flexibleSpace: FlexibleSpaceBar(
                   background: Stack(
                     fit: StackFit.expand,
@@ -124,7 +128,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                           ),
                         ),
                       ),
-
                       const DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -144,7 +147,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                   ),
                 ),
               ),
-
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
@@ -161,20 +163,16 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                               letterSpacing: -0.5,
                             ),
                       ),
-
                       if (anime.japaneseTitle != null &&
                           anime.japaneseTitle!.isNotEmpty) ...[
                         const SizedBox(height: 8),
-
                         Text(
                           anime.japaneseTitle!,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
-
                       const SizedBox(height: 16),
-
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -184,20 +182,15 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                               label: '★ ${anime.rating.toStringAsFixed(1)}',
                               emphasized: true,
                             ),
-
                           if (anime.type != 'Unknown')
                             _InfoChip(label: anime.type),
-
                           if (anime.episodes != null)
                             _InfoChip(label: '${anime.episodes} Episodes'),
-
                           if (anime.year != null)
                             _InfoChip(label: anime.year.toString()),
                         ],
                       ),
-
                       const SizedBox(height: 14),
-
                       if (anime.genres.isNotEmpty)
                         Wrap(
                           spacing: 8,
@@ -206,9 +199,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                               .map((genre) => _GenreChip(label: genre))
                               .toList(),
                         ),
-
                       const SizedBox(height: 24),
-
                       Row(
                         children: [
                           Expanded(
@@ -216,12 +207,24 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                             child: PrimaryButton(
                               text: "Watch Now",
                               icon: Icons.play_arrow_rounded,
-                              onPressed: () {},
+                              onPressed: () {
+                                Navigator.of(context, rootNavigator: true).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => PlayerScreen(
+                                      controller: PlayerController(
+                                        repository: PlayerRepository(
+                                          streamService:
+                                              StreamService(), // <--- Inject the service here
+                                        ),
+                                      ),
+                                      animeTitle: anime.title,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
-
                           const SizedBox(width: 12),
-
                           SizedBox(
                             width: 50,
                             height: 50,
@@ -244,39 +247,28 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 30),
-
                       const _SectionTitle(title: 'Synopsis'),
-
                       const SizedBox(height: 10),
-
                       ExpandableSynopsis(synopsis: anime.synopsis),
-
                       const SizedBox(height: 30),
-
                       const _SectionTitle(title: 'Information'),
-
                       const SizedBox(height: 14),
-
                       InfoCard(
                         icon: Icons.live_tv_rounded,
                         title: "Status",
                         value: anime.status,
                       ),
-
                       InfoCard(
                         icon: Icons.schedule_rounded,
                         title: "Duration",
                         value: anime.duration,
                       ),
-
                       InfoCard(
                         icon: Icons.movie_creation_outlined,
                         title: "Episodes",
                         value: anime.episodes?.toString() ?? "Unknown",
                       ),
-
                       InfoCard(
                         icon: Icons.business_rounded,
                         title: "Studio",
@@ -392,9 +384,7 @@ class _DetailsErrorState extends StatelessWidget {
                 color: Colors.white54,
                 size: 48,
               ),
-
               const SizedBox(height: 16),
-
               const Text(
                 'Unable to load anime details',
                 textAlign: TextAlign.center,
@@ -404,27 +394,19 @@ class _DetailsErrorState extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               const Text(
                 'Please check your connection and try again.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white60, fontSize: 14),
               ),
-
               const SizedBox(height: 20),
-
               FilledButton.icon(
                 onPressed: onRetry,
-
                 icon: const Icon(Icons.refresh_rounded),
-
                 label: const Text("Retry"),
               ),
-
               const SizedBox(height: 12),
-
               TextButton.icon(
                 onPressed: onBack,
                 icon: const Icon(Icons.arrow_back_rounded),

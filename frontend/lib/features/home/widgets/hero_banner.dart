@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../shared/models/anime.dart';
 import '../../../core/radius/app_radius.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../details/anime_details_screen.dart';
 import '../../../shared/widgets/buttons/primary_button.dart';
 import '../../../shared/widgets/buttons/secondary_button.dart';
+import '../../details/anime_details_screen.dart';
 
 class HeroBanner extends StatelessWidget {
   final Anime anime;
@@ -180,19 +180,21 @@ class HeroBanner extends StatelessWidget {
                             child: PrimaryButton(
                               text: "Watch Now",
                               icon: Icons.play_arrow_rounded,
-                              onPressed: anime.id > 0
-                                  ? () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => AnimeDetailsScreen(
-                                            animeId: anime.id,
-                                            heroTag: 'HeroBanner_${anime.id}',
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  : null,
+                              onPressed: () {
+                                debugPrint(
+                                  "WATCH NOW TAPPED! Anime ID: ${anime.id}",
+                                );
+
+                                // Pushes the real details screen over the bottom navigation bar
+                                Navigator.of(context, rootNavigator: true).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AnimeDetailsScreen(
+                                      animeId: anime.id,
+                                      heroTag: 'HeroBanner_${anime.id}',
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ),

@@ -40,6 +40,9 @@ dependencies:
   hive_ce: 2.13.0
   hive_ce_flutter: ^2.3.0
   graphql_flutter: ^5.2.0
+  media_kit: ^1.2.0
+  media_kit_video: ^1.3.0
+  media_kit_libs_video: ^1.0.7
 
 dev_dependencies:
   flutter_test:

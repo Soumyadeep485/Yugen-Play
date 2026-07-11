@@ -19,17 +19,17 @@ class AnimeCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadius.md),
 
-        onTap: anime.id > 0
-            ? () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        AnimeDetailsScreen(animeId: anime.id, heroTag: heroTag),
-                  ),
-                );
-              }
-            : null,
+        onTap: () {
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              builder: (_) => AnimeDetailsScreen(
+                animeId: anime.id,
+                heroTag:
+                    'AnimeCard_${anime.id}', // Make sure the tag matches the Hero widget in the card
+              ),
+            ),
+          );
+        },
 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
