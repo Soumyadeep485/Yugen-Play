@@ -37,6 +37,8 @@ dependencies:
   google_fonts: ^8.1.0
   http: ^1.6.0
   cached_network_image: ^3.2.3
+  hive_ce: 2.13.0
+  hive_ce_flutter: ^2.3.0
 
 dev_dependencies:
   flutter_test:

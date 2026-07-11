@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../shared/models/anime.dart';
 import '../../../core/radius/app_radius.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../../../core/colors/app_colors.dart';
 import '../../details/anime_details_screen.dart';
+import '../../../shared/widgets/buttons/primary_button.dart';
+import '../../../shared/widgets/buttons/secondary_button.dart';
 
 class HeroBanner extends StatelessWidget {
   final Anime anime;
@@ -176,39 +177,21 @@ class HeroBanner extends StatelessWidget {
                           flex: 5,
                           child: SizedBox(
                             height: 48,
-                            child: FilledButton.icon(
+                            child: PrimaryButton(
+                              text: "Watch Now",
+                              icon: Icons.play_arrow_rounded,
                               onPressed: anime.id > 0
                                   ? () {
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
-                                          builder: (context) =>
-                                              AnimeDetailsScreen(
-                                                animeId: anime.id,
-                                              ),
+                                          builder: (_) => AnimeDetailsScreen(
+                                            animeId: anime.id,
+                                          ),
                                         ),
                                       );
                                     }
                                   : null,
-                              icon: const Icon(
-                                Icons.play_arrow_rounded,
-                                size: 22,
-                              ),
-                              label: const Text("Watch Now"),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.md,
-                                  ),
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ),
                           ),
                         ),
@@ -219,28 +202,10 @@ class HeroBanner extends StatelessWidget {
                           flex: 4,
                           child: SizedBox(
                             height: 48,
-                            child: OutlinedButton.icon(
+                            child: SecondaryButton(
+                              text: "My List",
+                              icon: Icons.add_rounded,
                               onPressed: () {},
-                              icon: const Icon(Icons.add_rounded, size: 21),
-                              label: const Text("My List"),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                backgroundColor: Colors.black.withValues(
-                                  alpha: 0.30,
-                                ),
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.35),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.md,
-                                  ),
-                                ),
-                                textStyle: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ),
                           ),
                         ),

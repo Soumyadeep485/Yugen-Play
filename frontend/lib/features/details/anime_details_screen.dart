@@ -8,6 +8,8 @@ import '../../shared/repositories/anime_repository.dart';
 import '../../shared/services/api_service.dart';
 import 'widgets/expandable_synopsis.dart';
 import 'widgets/info_card.dart';
+import '../../shared/widgets/buttons/icon_circle_button.dart';
+import '../../../shared/widgets/buttons/primary_button.dart';
 
 class AnimeDetailsScreen extends StatefulWidget {
   final int animeId;
@@ -75,7 +77,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
 
                 leading: Padding(
                   padding: const EdgeInsets.all(8),
-                  child: _CircleActionButton(
+                  child: IconCircleButton(
                     icon: Icons.arrow_back_rounded,
                     onPressed: () => Navigator.pop(context),
                   ),
@@ -88,7 +90,7 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                       right: 12,
                       bottom: 8,
                     ),
-                    child: _CircleActionButton(
+                    child: IconCircleButton(
                       icon: Icons.bookmark_border_rounded,
                       onPressed: () {},
                     ),
@@ -207,26 +209,10 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                         children: [
                           Expanded(
                             flex: 5,
-                            child: SizedBox(
-                              height: 50,
-                              child: FilledButton.icon(
-                                onPressed: () {},
-                                icon: const Icon(Icons.play_arrow_rounded),
-                                label: const Text('Watch Now'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.primary,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.md,
-                                    ),
-                                  ),
-                                  textStyle: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
+                            child: PrimaryButton(
+                              text: "Watch Now",
+                              icon: Icons.play_arrow_rounded,
+                              onPressed: () {},
                             ),
                           ),
 
@@ -301,30 +287,6 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _CircleActionButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _CircleActionButton({required this.icon, required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.55),
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onPressed,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 42,
-          height: 42,
-          child: Icon(icon, color: Colors.white, size: 22),
-        ),
       ),
     );
   }

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import '../../search/search_screen.dart';
 import '../../../core/colors/app_colors.dart';
 
 class HomeAppBar extends StatelessWidget {
@@ -31,7 +31,12 @@ class HomeAppBar extends StatelessWidget {
           const Spacer(),
 
           IconButton(
-            onPressed: () {},
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SearchScreen()),
+              );
+            },
 
             icon: const Icon(
               Icons.search_rounded,

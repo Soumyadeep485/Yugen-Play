@@ -87,6 +87,24 @@ class AnimeRepository {
     return AnimeDetails.fromJson(data);
   }
 
+  Future<List<Anime>> searchAnime(String query) async {
+    final trimmedQuery = query.trim();
+
+    if (trimmedQuery.isEmpty) {
+      return [];
+    }
+
+    final response = await apiService
+        .get('/anime?q=${Uri.encodeQueryComponent(trimmedQuery)}&limit=20')
+        .timeout(const Duration(seconds: 10));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to search anime: HTTP ${response.statusCode}');
+    }
+
+    return _parseAnimeList(response.body);
+  }
+
   Future<List<Anime>> _fetchOptionalSection(String endpoint) async {
     try {
       final response = await apiService
