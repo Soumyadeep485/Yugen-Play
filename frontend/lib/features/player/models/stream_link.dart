@@ -2,24 +2,12 @@ import 'audio_track.dart';
 import 'subtitle_track.dart';
 
 /// Represents a single playable media stream.
-///
-/// A [StreamLink] contains all information required by the player
-/// to start playback.
-///
-/// It is intentionally provider-agnostic and supports:
-///
-/// • MP4 streams
-/// • HLS (.m3u8)
-/// • Required HTTP headers
-/// • Multiple subtitle tracks
-/// • Multiple audio tracks
-///
-/// This model is designed to remain stable as new streaming providers
-/// are added to the application.
 class StreamLink {
   const StreamLink({
     required this.url,
     required this.quality,
+    required this.sourceName,
+    required this.isM3U8,
     this.headers = const {},
     this.subtitles = const [],
     this.audioTracks = const [],
@@ -27,45 +15,21 @@ class StreamLink {
     this.isDefault = false,
   });
 
-  /// Direct playable media URL.
   final String url;
-
-  /// Human-readable quality label.
-  ///
-  /// Examples:
-  /// - Auto
-  /// - 360p
-  /// - 480p
-  /// - 720p
-  /// - 1080p
   final String quality;
-
-  /// Additional HTTP headers required when requesting this stream.
-  ///
-  /// Some providers require headers such as:
-  /// - Referer
-  /// - Origin
-  /// - User-Agent
+  final String sourceName; // e.g., "Vidstreaming", "Filemoon"
+  final bool isM3U8; // True if it's an HLS stream
   final Map<String, String> headers;
-
-  /// Available subtitle tracks.
   final List<SubtitleTrack> subtitles;
-
-  /// Available audio tracks.
   final List<AudioTrack> audioTracks;
-
-  /// Indicates whether this stream uses HLS (.m3u8).
-  ///
-  /// False generally indicates a direct video file such as MP4.
   final bool isHls;
-
-  /// Whether this stream should be selected automatically.
   final bool isDefault;
 
-  /// Creates a modified copy of this stream.
   StreamLink copyWith({
     String? url,
     String? quality,
+    String? sourceName,
+    bool? isM3U8,
     Map<String, String>? headers,
     List<SubtitleTrack>? subtitles,
     List<AudioTrack>? audioTracks,
@@ -75,6 +39,8 @@ class StreamLink {
     return StreamLink(
       url: url ?? this.url,
       quality: quality ?? this.quality,
+      sourceName: sourceName ?? this.sourceName,
+      isM3U8: isM3U8 ?? this.isM3U8,
       headers: headers ?? this.headers,
       subtitles: subtitles ?? this.subtitles,
       audioTracks: audioTracks ?? this.audioTracks,
@@ -83,11 +49,12 @@ class StreamLink {
     );
   }
 
-  /// Converts this stream into a JSON-compatible map.
   Map<String, dynamic> toJson() {
     return {
       'url': url,
       'quality': quality,
+      'sourceName': sourceName,
+      'isM3U8': isM3U8,
       'headers': headers,
       'subtitles': subtitles.map((subtitle) => subtitle.toJson()).toList(),
       'audioTracks': audioTracks.map((track) => track.toJson()).toList(),
@@ -96,11 +63,13 @@ class StreamLink {
     };
   }
 
-  /// Creates a [StreamLink] from JSON.
   factory StreamLink.fromJson(Map<String, dynamic> json) {
+    final streamUrl = json['url'] as String? ?? '';
     return StreamLink(
-      url: json['url'] as String,
-      quality: json['quality'] as String,
+      url: streamUrl,
+      quality: json['quality'] as String? ?? 'Auto',
+      sourceName: json['sourceName'] as String? ?? 'Unknown',
+      isM3U8: json['isM3U8'] as bool? ?? streamUrl.contains('.m3u8'),
       headers: Map<String, String>.from(json['headers'] as Map? ?? const {}),
       subtitles: (json['subtitles'] as List<dynamic>? ?? const [])
           .map((item) => SubtitleTrack.fromJson(item as Map<String, dynamic>))
@@ -108,32 +77,25 @@ class StreamLink {
       audioTracks: (json['audioTracks'] as List<dynamic>? ?? const [])
           .map((item) => AudioTrack.fromJson(item as Map<String, dynamic>))
           .toList(),
-      isHls: json['isHls'] as bool? ?? false,
+      isHls: json['isHls'] as bool? ?? streamUrl.contains('.m3u8'),
       isDefault: json['isDefault'] as bool? ?? false,
     );
   }
 
   @override
   String toString() {
-    return 'StreamLink('
-        'quality: $quality, '
-        'url: $url, '
-        'isHls: $isHls, '
-        'isDefault: $isDefault, '
-        'subtitles: ${subtitles.length}, '
-        'audioTracks: ${audioTracks.length}'
-        ')';
+    return 'StreamLink(source: $sourceName, quality: $quality, url: $url)';
   }
 
   @override
   bool operator ==(Object other) {
-    if (identical(this, other)) {
-      return true;
-    }
+    if (identical(this, other)) return true;
 
     return other is StreamLink &&
         other.url == url &&
         other.quality == quality &&
+        other.sourceName == sourceName &&
+        other.isM3U8 == isM3U8 &&
         _mapEquals(other.headers, headers) &&
         _listEquals(other.subtitles, subtitles) &&
         _listEquals(other.audioTracks, audioTracks) &&
@@ -145,6 +107,8 @@ class StreamLink {
   int get hashCode => Object.hash(
     url,
     quality,
+    sourceName,
+    isM3U8,
     Object.hashAll(headers.entries),
     Object.hashAll(subtitles),
     Object.hashAll(audioTracks),
@@ -153,38 +117,20 @@ class StreamLink {
   );
 
   static bool _listEquals<T>(List<T> first, List<T> second) {
-    if (identical(first, second)) {
-      return true;
-    }
-
-    if (first.length != second.length) {
-      return false;
-    }
-
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
     for (var i = 0; i < first.length; i++) {
-      if (first[i] != second[i]) {
-        return false;
-      }
+      if (first[i] != second[i]) return false;
     }
-
     return true;
   }
 
   static bool _mapEquals<K, V>(Map<K, V> first, Map<K, V> second) {
-    if (identical(first, second)) {
-      return true;
-    }
-
-    if (first.length != second.length) {
-      return false;
-    }
-
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
     for (final key in first.keys) {
-      if (first[key] != second[key]) {
-        return false;
-      }
+      if (first[key] != second[key]) return false;
     }
-
     return true;
   }
 }

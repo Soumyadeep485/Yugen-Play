@@ -1,5 +1,4 @@
 import 'package:graphql_flutter/graphql_flutter.dart';
-
 import '../../../core/network/graphql_client.dart';
 import 'search_queries.dart';
 import '../../../shared/models/anime.dart';

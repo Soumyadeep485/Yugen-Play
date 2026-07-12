@@ -13,6 +13,10 @@ import 'data/details_repository.dart';
 import 'widgets/details_loading.dart';
 import 'widgets/expandable_synopsis.dart';
 import 'widgets/info_card.dart';
+import '../player/services/mapping_service.dart';
+import '../player/services/video_extraction_service.dart';
+import '../player/data/extensions/js_runtime_provider.dart';
+import '../player/data/custom_provider.dart';
 
 class AnimeDetailsScreen extends StatefulWidget {
   final int animeId;
@@ -208,15 +212,36 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
                               text: "Watch Now",
                               icon: Icons.play_arrow_rounded,
                               onPressed: () {
+                                // 1. Initialize the service and immediately register the provider
+                                final streamService = StreamService();
+                                streamService.registerProvider(
+                                  CustomProvider(),
+                                ); // Must be registered to avoid Bad State
+
+                                // 2. Initialize the repository with the PRE-CONFIGURED service
+                                final playerRepository = PlayerRepository(
+                                  streamService: streamService,
+                                  mappingService: MappingService(),
+                                );
+
+                                // 3. Initialize the controller with the repository
+                                final playerController = PlayerController(
+                                  repository: playerRepository,
+                                  extractionService: VideoExtractionService(
+                                    JsRuntimeProvider(),
+                                  ),
+                                );
+
+                                // 4. Trigger the load
+                                playerController.loadEpisodes(
+                                  anilistId: widget.animeId,
+                                );
+
+                                // 5. Navigate
                                 Navigator.of(context, rootNavigator: true).push(
                                   MaterialPageRoute(
                                     builder: (_) => PlayerScreen(
-                                      controller: PlayerController(
-                                        repository: PlayerRepository(
-                                          streamService:
-                                              StreamService(), // <--- Inject the service here
-                                        ),
-                                      ),
+                                      controller: playerController,
                                       animeTitle: anime.title,
                                     ),
                                   ),

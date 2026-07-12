@@ -1,15 +1,3 @@
-/// Defines all supported streaming providers.
-///
-/// This enum is the single source of truth for identifying
-/// streaming providers throughout the application.
-///
-/// Add new providers here as they are implemented.
-///
-/// Example:
-/// ```dart
-/// final source = StreamingSource.hianime;
-/// print(source.displayName); // HiAnime
-/// ```
 enum StreamingSource {
   /// HiAnime provider.
   hianime(key: 'hianime', displayName: 'HiAnime'),
