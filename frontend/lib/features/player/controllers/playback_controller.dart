@@ -71,8 +71,30 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> setStream(StreamLink stream) async {
     _currentStream = stream;
+    // Reset buffering and position states when loading a new stream
+    _isBuffering = true;
+    _position = Duration.zero;
+    _duration = Duration.zero;
     notifyListeners();
-    await _player.open(Media(stream.url));
+
+    try {
+      // THE FIX: We must inject the security headers extracted by the JS plugin
+      // into the Media object, otherwise the host server will block the connection.
+      await _player.open(
+        Media(
+          stream.url,
+          httpHeaders: stream.headers.isNotEmpty ? stream.headers : null,
+        ),
+      );
+
+      // Auto-play once the stream is mounted
+      await _player.play();
+    } catch (e) {
+      debugPrint('  CRITICAL: MediaKit failed to open stream: $e');
+      _isBuffering = false;
+      notifyListeners();
+      // In a fully polished app, you would throw this error up to the UI here.
+    }
   }
 
   Future<void> play() async {

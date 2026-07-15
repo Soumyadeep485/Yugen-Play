@@ -1,22 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import '../player/data/player_repository.dart';
-import '../player/services/stream_service.dart';
+import 'package:frontend/features/player/screens/find_torrent_sheet.dart';
 import '../../core/colors/app_colors.dart';
 import '../../core/radius/app_radius.dart';
 import '../../shared/models/anime_details.dart';
 import '../../shared/widgets/buttons/icon_circle_button.dart';
 import '../../shared/widgets/buttons/primary_button.dart';
 import '../player/controllers/player_controller.dart';
-import '../player/player_screen.dart';
 import 'data/details_repository.dart';
 import 'widgets/details_loading.dart';
 import 'widgets/expandable_synopsis.dart';
 import 'widgets/info_card.dart';
-import '../player/services/mapping_service.dart';
-import '../player/services/video_extraction_service.dart';
-import '../player/data/extensions/js_runtime_provider.dart';
-import '../player/data/custom_provider.dart';
+import '../../service_locator.dart';
+import '../player/models/plugin_meta.dart';
 
 class AnimeDetailsScreen extends StatefulWidget {
   final int animeId;
@@ -36,20 +32,30 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
   final DetailsRepository _repository = DetailsRepository();
   late Future<AnimeDetails> _animeDetailsFuture;
 
+  // Scoped controller mapped to GetIt factories
+  late final PlayerController _playerController;
+
   @override
   void initState() {
     super.initState();
-    // Do NOT wrap this in setState. It is initialized before the first build.
+    _playerController = locator<PlayerController>();
     _loadAnime();
+
+    // Add this to ensure plugins are loaded before the user tries to watch
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _playerController.loadPlugins();
+    });
   }
 
   void _loadAnime() {
-    _animeDetailsFuture = _repository.getAnimeDetails(widget.animeId);
+    // FIXED: Changed to match the new repository method name
+    _animeDetailsFuture = _repository.fetchAnimeDetails(widget.animeId);
   }
 
   void _retryLoad() {
     setState(() {
       _loadAnime();
+      _playerController.loadPlugins();
     });
   }
 
@@ -82,232 +88,311 @@ class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
 
           final anime = snapshot.data!;
 
-          return CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                expandedHeight: 430,
-                pinned: true,
-                backgroundColor: AppColors.background,
-                surfaceTintColor: Colors.transparent,
-                leading: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: IconCircleButton(
-                    icon: Icons.arrow_back_rounded,
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(
-                      top: 8,
-                      right: 12,
-                      bottom: 8,
+          // Wrapped in a ListenableBuilder to securely listen to the state updates of PlayerController
+          return ListenableBuilder(
+            listenable: _playerController,
+            builder: (context, _) {
+              return CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    expandedHeight: 430,
+                    pinned: true,
+                    backgroundColor: AppColors.background,
+                    surfaceTintColor: Colors.transparent,
+                    leading: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: IconCircleButton(
+                        icon: Icons.arrow_back_rounded,
+                        onPressed: () => Navigator.pop(context),
+                      ),
                     ),
-                    child: IconCircleButton(
-                      icon: Icons.bookmark_border_rounded,
-                      onPressed: () {},
+                    actions: [
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          top: 8,
+                          right: 12,
+                          bottom: 8,
+                        ),
+                        child: IconCircleButton(
+                          icon: Icons.bookmark_border_rounded,
+                          onPressed: () {},
+                        ),
+                      ),
+                    ],
+                    flexibleSpace: FlexibleSpaceBar(
+                      background: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Hero(
+                            tag: widget.heroTag,
+                            child: CachedNetworkImage(
+                              imageUrl: anime.imageUrl,
+                              fit: BoxFit.cover,
+                              fadeInDuration: const Duration(milliseconds: 300),
+                              placeholder: (context, url) =>
+                                  Container(color: AppColors.card),
+                              errorWidget: (context, url, error) => Container(
+                                color: AppColors.card,
+                                alignment: Alignment.center,
+                                child: const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: Colors.white38,
+                                  size: 48,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Color(0x33000000),
+                                  Color(0xCC0D0D0F),
+                                  AppColors.background,
+                                ],
+                                stops: [0.25, 0.50, 0.82, 1.0],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            anime.title,
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.08,
+                                  letterSpacing: -0.5,
+                                ),
+                          ),
+                          const SizedBox(height: 16),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              // FIXED: Mapped to meanScore instead of rating
+                              if (anime.meanScore > 0)
+                                _InfoChip(
+                                  label: '★ ${anime.meanScore}',
+                                  emphasized: true,
+                                ),
+                              // FIXED: Mapped to format instead of type
+                              if (anime.format != 'UNKNOWN')
+                                _InfoChip(label: anime.format),
+                              if (anime.episodes != null)
+                                _InfoChip(label: '${anime.episodes} Episodes'),
+                              // FIXED: Mapped to seasonYear instead of year
+                              if (anime.seasonYear != null)
+                                _InfoChip(label: anime.seasonYear.toString()),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+                          if (anime.genres.isNotEmpty)
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: anime.genres
+                                  .map((genre) => _GenreChip(label: genre))
+                                  .toList(),
+                            ),
+
+                          // 📦 DROPDOWN SELECTOR BLOCK INJECTED HERE
+                          const SizedBox(height: 24),
+                          const _SectionTitle(title: 'Video Provider Source'),
+                          const SizedBox(height: 8),
+                          _buildPluginDropdown(),
+                          const SizedBox(height: 24),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 5,
+                                child: PrimaryButton(
+                                  // Or whatever your button widget is named
+                                  text: "Watch Now",
+                                  icon: Icons.play_arrow_rounded,
+                                  onPressed: () {
+                                    showModalBottomSheet(
+                                      context: context,
+                                      isScrollControlled: true,
+                                      backgroundColor: Colors.transparent,
+                                      useRootNavigator:
+                                          true, // Ensures it overlays the bottom nav bar too
+                                      builder: (context) => const FindTorrentSheet(
+                                        animeTitle:
+                                            "Attack on Titan", // Pass your actual dynamic variables here
+                                        episodeNumber: 1,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              SizedBox(
+                                width: 50,
+                                height: 50,
+                                child: OutlinedButton(
+                                  onPressed: () {},
+                                  style: OutlinedButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.18,
+                                      ),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppRadius.md,
+                                      ),
+                                    ),
+                                  ),
+                                  child: const Icon(Icons.add_rounded),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 30),
+                          const _SectionTitle(title: 'Synopsis'),
+                          const SizedBox(height: 10),
+                          // FIXED: Mapped to description instead of synopsis
+                          ExpandableSynopsis(synopsis: anime.description),
+                          const SizedBox(height: 30),
+                          const _SectionTitle(title: 'Information'),
+                          const SizedBox(height: 14),
+                          InfoCard(
+                            icon: Icons.live_tv_rounded,
+                            title: "Status",
+                            value: anime.status,
+                          ),
+                          InfoCard(
+                            icon: Icons.schedule_rounded,
+                            title: "Duration",
+                            // FIXED: Added null check and toString() conversion
+                            value: anime.duration != null
+                                ? "${anime.duration} min"
+                                : "Unknown",
+                          ),
+                          InfoCard(
+                            icon: Icons.movie_creation_outlined,
+                            title: "Episodes",
+                            value: anime.episodes?.toString() ?? "Unknown",
+                          ),
+                          InfoCard(
+                            icon: Icons.business_rounded,
+                            title: "Studio",
+                            // FIXED: Studios removed from new model, safely mapped to Unknown for legacy screen
+                            value: "Unknown",
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
-                flexibleSpace: FlexibleSpaceBar(
-                  background: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Hero(
-                        tag: widget.heroTag,
-                        child: CachedNetworkImage(
-                          imageUrl: anime.imageUrl,
-                          fit: BoxFit.cover,
-                          fadeInDuration: const Duration(milliseconds: 300),
-                          placeholder: (context, url) =>
-                              Container(color: AppColors.card),
-                          errorWidget: (context, url, error) => Container(
-                            color: AppColors.card,
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.broken_image_outlined,
-                              color: Colors.white38,
-                              size: 48,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              Color(0x33000000),
-                              Color(0xCC0D0D0F),
-                              AppColors.background,
-                            ],
-                            stops: [0.25, 0.50, 0.82, 1.0],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        anime.title,
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.copyWith(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              height: 1.08,
-                              letterSpacing: -0.5,
-                            ),
-                      ),
-                      if (anime.japaneseTitle != null &&
-                          anime.japaneseTitle!.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          anime.japaneseTitle!,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: AppColors.textSecondary),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (anime.rating > 0)
-                            _InfoChip(
-                              label: '★ ${anime.rating.toStringAsFixed(1)}',
-                              emphasized: true,
-                            ),
-                          if (anime.type != 'Unknown')
-                            _InfoChip(label: anime.type),
-                          if (anime.episodes != null)
-                            _InfoChip(label: '${anime.episodes} Episodes'),
-                          if (anime.year != null)
-                            _InfoChip(label: anime.year.toString()),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      if (anime.genres.isNotEmpty)
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: anime.genres
-                              .map((genre) => _GenreChip(label: genre))
-                              .toList(),
-                        ),
-                      const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 5,
-                            child: PrimaryButton(
-                              text: "Watch Now",
-                              icon: Icons.play_arrow_rounded,
-                              onPressed: () {
-                                // 1. Initialize the service and immediately register the provider
-                                final streamService = StreamService();
-                                streamService.registerProvider(
-                                  CustomProvider(),
-                                ); // Must be registered to avoid Bad State
-
-                                // 2. Initialize the repository with the PRE-CONFIGURED service
-                                final playerRepository = PlayerRepository(
-                                  streamService: streamService,
-                                  mappingService: MappingService(),
-                                );
-
-                                // 3. Initialize the controller with the repository
-                                final playerController = PlayerController(
-                                  repository: playerRepository,
-                                  extractionService: VideoExtractionService(
-                                    JsRuntimeProvider(),
-                                  ),
-                                );
-
-                                // 4. Trigger the load
-                                playerController.loadEpisodes(
-                                  anilistId: widget.animeId,
-                                );
-
-                                // 5. Navigate
-                                Navigator.of(context, rootNavigator: true).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => PlayerScreen(
-                                      controller: playerController,
-                                      animeTitle: anime.title,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          SizedBox(
-                            width: 50,
-                            height: 50,
-                            child: OutlinedButton(
-                              onPressed: () {},
-                              style: OutlinedButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                foregroundColor: Colors.white,
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.18),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.md,
-                                  ),
-                                ),
-                              ),
-                              child: const Icon(Icons.add_rounded),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 30),
-                      const _SectionTitle(title: 'Synopsis'),
-                      const SizedBox(height: 10),
-                      ExpandableSynopsis(synopsis: anime.synopsis),
-                      const SizedBox(height: 30),
-                      const _SectionTitle(title: 'Information'),
-                      const SizedBox(height: 14),
-                      InfoCard(
-                        icon: Icons.live_tv_rounded,
-                        title: "Status",
-                        value: anime.status,
-                      ),
-                      InfoCard(
-                        icon: Icons.schedule_rounded,
-                        title: "Duration",
-                        value: anime.duration,
-                      ),
-                      InfoCard(
-                        icon: Icons.movie_creation_outlined,
-                        title: "Episodes",
-                        value: anime.episodes?.toString() ?? "Unknown",
-                      ),
-                      InfoCard(
-                        icon: Icons.business_rounded,
-                        title: "Studio",
-                        value: anime.studios.isEmpty
-                            ? "Unknown"
-                            : anime.studios.join(", "),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  // Generates a clean, stylized dropdown selector based on active Hive storage states
+  Widget _buildPluginDropdown() {
+    if (_playerController.isLoading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.primary,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text(
+              "Loading local extensions...",
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_playerController.availablePlugins.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.2)),
+        ),
+        child: const Text(
+          "❌ No active plugins available. Core engine locked.",
+          style: TextStyle(
+            color: Colors.redAccent,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<PluginMeta>(
+          value: _playerController.selectedPlugin,
+          isExpanded: true,
+          dropdownColor: AppColors.card,
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: AppColors.textSecondary,
+          ),
+          items: _playerController.availablePlugins.map((PluginMeta plugin) {
+            return DropdownMenuItem<PluginMeta>(
+              value: plugin,
+              child: Text(
+                "${plugin.name} (v${plugin.version})",
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            );
+          }).toList(),
+          onChanged: (PluginMeta? newPlugin) {
+            if (newPlugin != null) {
+              _playerController.selectPlugin(newPlugin);
+            }
+          },
+        ),
       ),
     );
   }

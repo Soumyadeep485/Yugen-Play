@@ -24,4 +24,7 @@ function extractStreams(episodeUrl) {
         }
     ];
     return JSON.stringify(streams);
+    function extract(url) {
+    return extractStreams(url);
+}
 }

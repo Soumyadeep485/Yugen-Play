@@ -1,21 +1,23 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart'; // Needed for debugPrint
+import 'package:flutter/foundation.dart';
 import '../../player/data/extensions/js_runtime_provider.dart';
 import '../../../shared/models/anime.dart';
-import '../../player/services/extension_updater_service.dart'; // 🌟 NEW IMPORT
+import '../../player/services/extension_updater_service.dart';
 
 class ExtensionSearchService {
-  final JsRuntimeProvider _jsProvider = JsRuntimeProvider();
-  final ExtensionUpdaterService _updaterService = ExtensionUpdaterService();
+  final JsRuntimeProvider _jsProvider;
+  final ExtensionUpdaterService _updaterService;
+
   bool _isEngineReady = false;
 
-  // 🌟 PASTE YOUR RAW GITHUB GIST URL HERE
+  // Inject dependencies cleanly through the constructor
+  ExtensionSearchService(this._jsProvider, this._updaterService);
+
   final String _remoteGistUrl =
       'https://gist.githubusercontent.com/Soumyadeep485/0e3b19e8bddace2097b9c6a25c309cb8/raw/0df35ccb07d027797c86cc862a98d481f9b74c52/mock_gogo.js';
 
   Future<void> _ensureEngineReady() async {
     if (_isEngineReady) return;
-
     _jsProvider.initialize();
 
     // 1. Attempt to trigger an OTA download of the latest script
@@ -25,13 +27,11 @@ class ExtensionSearchService {
     );
 
     String? scriptContent;
-
     if (downloadedPath != null) {
       // 2. Read the freshly downloaded file from the device storage
       scriptContent = await _updaterService.readLocalExtension('gogo_live');
     } else {
-      // Fallback: If network fails, try to read whatever was previously downloaded
-      debugPrint('⚠️ Network failed, attempting to load cached extension...');
+      debugPrint('  Network failed, attempting to load cached extension...');
       scriptContent = await _updaterService.readLocalExtension('gogo_live');
     }
 
@@ -39,7 +39,7 @@ class ExtensionSearchService {
       // 3. Inject the live code into the JS VM
       await _jsProvider.loadScript(scriptContent);
       _isEngineReady = true;
-      debugPrint('🌟 Live Extension Engine primed and ready.');
+      debugPrint('  Live Extension Engine primed and ready.');
     } else {
       throw Exception(
         "CRITICAL: Failed to load extension from network or local cache.",
@@ -49,13 +49,11 @@ class ExtensionSearchService {
 
   Future<List<Anime>> searchViaExtension(String query) async {
     await _ensureEngineReady();
-
     final String? jsonResponse = await _jsProvider.callFunction('searchAnime', [
       query,
     ]);
 
     if (jsonResponse == null) return [];
-
     final List<dynamic> decoded = jsonDecode(jsonResponse);
 
     return decoded.map((item) {
@@ -75,7 +73,6 @@ class ExtensionSearchService {
         'status': 'FINISHED',
         'episodes': 12,
       };
-
       return Anime.fromGraphQL(mockGraphQlData);
     }).toList();
   }

@@ -4,6 +4,8 @@ import '../../shared/models/anime.dart';
 import 'data/search_repository.dart';
 import '../../core/colors/app_colors.dart';
 import 'widgets/search_result_title.dart';
+import 'widgets/trending_searches.dart';
+import 'widgets/recent_searches.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -14,31 +16,18 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final SearchRepository repository = SearchRepository();
-
-  List<String> recentSearches = [];
-
   final TextEditingController searchController = TextEditingController();
 
   Timer? _debounce;
-
   List<Anime> searchResults = [];
-
   bool isLoading = false;
-
   String? error;
 
   @override
-  void initState() {
-    super.initState();
-    _loadHistory();
-  }
-
-  Future<void> _loadHistory() async {
-    // recentSearches = await historyService.getHistory();
-
-    if (mounted) {
-      setState(() {});
-    }
+  void dispose() {
+    _debounce?.cancel();
+    searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _searchAnime() async {
@@ -53,16 +42,6 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    if (query.isEmpty) {
-      setState(() {
-        searchResults = [];
-        error = null;
-      });
-      return;
-    }
-    // await historyService.saveSearch(query);
-
-    await _loadHistory();
     setState(() {
       isLoading = true;
       error = null;
@@ -70,15 +49,12 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       final results = await repository.searchAnime(query);
-
       if (!mounted) return;
-
       setState(() {
         searchResults = results;
       });
     } catch (e) {
       if (!mounted) return;
-
       setState(() {
         error = e.toString();
       });
@@ -91,22 +67,18 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    searchController.dispose();
-    super.dispose();
-  }
-
-  Widget _buildBody() {
+  /// The unified state machine for the search content area
+  Widget _buildContent() {
     if (isLoading) {
       return const Center(
+        key: ValueKey('loadingState'),
         child: CircularProgressIndicator(color: AppColors.primary),
       );
     }
 
     if (error != null) {
       return Center(
+        key: const ValueKey('errorState'),
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -117,21 +89,20 @@ class _SearchScreenState extends State<SearchScreen> {
                 size: 64,
                 color: Colors.white38,
               ),
-
               const SizedBox(height: 20),
-
               Text(
                 error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white70),
               ),
-
               const SizedBox(height: 20),
-
               FilledButton.icon(
                 onPressed: _searchAnime,
                 icon: const Icon(Icons.refresh),
                 label: const Text("Retry"),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                ),
               ),
             ],
           ),
@@ -140,53 +111,34 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     if (searchController.text.trim().isEmpty) {
-      if (recentSearches.isEmpty) {
-        return const Center(
-          child: Text(
-            "Search your favourite anime",
-            style: TextStyle(color: Colors.white70),
-          ),
-        );
-      }
-
+      // Fluidly present the idle widgets you previously created but ignored
       return ListView(
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: Text(
-              "Recent Searches",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-
-          ...recentSearches.map(
-            (query) => ListTile(
-              leading: const Icon(Icons.history, color: Colors.white54),
-              title: Text(query, style: const TextStyle(color: Colors.white)),
-              onTap: () {
-                searchController.text = query;
-                _searchAnime();
-              },
-            ),
-          ),
+        key: const ValueKey('idleState'),
+        padding: const EdgeInsets.only(top: 12),
+        children: const [
+          TrendingSearches(),
+          SizedBox(height: 32),
+          RecentSearches(),
         ],
       );
     }
 
     if (searchResults.isEmpty) {
       return const Center(
-        child: Text("No anime found.", style: TextStyle(color: Colors.white54)),
+        key: ValueKey('emptyState'),
+        child: Text(
+          "No anime found.",
+          style: TextStyle(color: Colors.white54, fontSize: 16),
+        ),
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.only(top: 8),
+      key: const ValueKey('resultsState'),
+      padding: const EdgeInsets.only(top: 12),
       itemCount: searchResults.length,
-      separatorBuilder: (context, index) => const Divider(height: 1),
+      separatorBuilder: (context, index) =>
+          const Divider(height: 1, color: Colors.white10),
       itemBuilder: (context, index) {
         return SearchResultTile(anime: searchResults[index]);
       },
@@ -197,71 +149,66 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         title: const Text("Search"),
+        elevation: 0,
       ),
-
       body: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
           children: [
+            const SizedBox(height: 8),
             TextField(
               controller: searchController,
-
               textInputAction: TextInputAction.search,
-
               onChanged: (value) {
                 if (_debounce?.isActive ?? false) {
                   _debounce!.cancel();
                 }
-
                 _debounce = Timer(
                   const Duration(milliseconds: 500),
                   _searchAnime,
                 );
-
+                // Trigger an immediate rebuild to handle the empty state swap
                 setState(() {});
               },
-
               style: const TextStyle(color: Colors.white),
-
               decoration: InputDecoration(
                 hintText: "Search anime...",
-
-                prefixIcon: const Icon(Icons.search),
-
+                hintStyle: const TextStyle(color: Colors.white38),
+                prefixIcon: const Icon(Icons.search, color: Colors.white54),
                 suffixIcon: searchController.text.isEmpty
                     ? null
                     : IconButton(
                         onPressed: () {
                           _debounce?.cancel();
-
                           searchController.clear();
-
                           setState(() {
                             searchResults.clear();
                             error = null;
                           });
                         },
-                        icon: const Icon(Icons.close),
+                        icon: const Icon(Icons.close, color: Colors.white54),
                       ),
-
                 filled: true,
-
-                fillColor: const Color(0xFF1A1A1D),
-
+                fillColor: Colors.white.withValues(alpha: 0.05),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(16),
                   borderSide: BorderSide.none,
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            Expanded(child: _buildBody()),
+            Expanded(
+              // The Saikou-style smooth transition wrapper
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 350),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _buildContent(),
+              ),
+            ),
           ],
         ),
       ),

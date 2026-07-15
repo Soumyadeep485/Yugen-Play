@@ -5,16 +5,20 @@ import '../models/episode.dart';
 import '../models/server.dart';
 import '../models/stream_link.dart';
 import '../models/audio_track.dart';
-import '../services/video_extraction_service.dart';
+import '../models/plugin_meta.dart';
+import '../data/registry/plugin_registry.dart';
+import '../services/plugin_manager.dart';
 
 class PlayerController extends ChangeNotifier {
   PlayerController({
     required this.repository,
-    required this.extractionService, // 🌟 INJECTED SERVICE
+    required this.pluginRegistry,
+    required this.pluginManager,
   });
 
   final PlayerRepository repository;
-  final VideoExtractionService extractionService;
+  final PluginRegistry pluginRegistry;
+  final PluginManager pluginManager;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -22,37 +26,71 @@ class PlayerController extends ChangeNotifier {
   List<Episode> _episodes = [];
   List<Server> _servers = [];
   List<StreamLink> _streamLinks = [];
+  List<PluginMeta> _availablePlugins = [];
+  List<PluginMeta> get availablePlugins => _availablePlugins;
   final List<SubtitleTrack> _subtitleTracks = [];
   final List<AudioTrack> _audioTracks = [];
-
-  List<SubtitleTrack> get subtitleTracks => List.unmodifiable(_subtitleTracks);
 
   Episode? _selectedEpisode;
   Server? _selectedServer;
   StreamLink? _selectedStream;
+  PluginMeta? _selectedPlugin;
   SubtitleTrack? _selectedSubtitle;
   AudioTrack? _selectedAudio;
 
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   List<Episode> get episodes => List.unmodifiable(_episodes);
+
   List<Server> get servers => List.unmodifiable(_servers);
   List<StreamLink> get streamLinks => List.unmodifiable(_streamLinks);
+  List<SubtitleTrack> get subtitleTracks => List.unmodifiable(_subtitleTracks);
+  List<AudioTrack> get audioTracks => List.unmodifiable(_audioTracks);
+
   Episode? get selectedEpisode => _selectedEpisode;
   Server? get selectedServer => _selectedServer;
   StreamLink? get selectedStream => _selectedStream;
+  PluginMeta? get selectedPlugin => _selectedPlugin;
   SubtitleTrack? get selectedSubtitle => _selectedSubtitle;
-  List<AudioTrack> get audioTracks => List.unmodifiable(_audioTracks);
   AudioTrack? get selectedAudio => _selectedAudio;
+
   bool get hasError => _errorMessage != null;
 
-  void clearError() {
-    _errorMessage = null;
+  Future<void> loadPlugins() async {
+    await _execute(() async {
+      _availablePlugins = await pluginRegistry.getActivePlugins();
+      if (_availablePlugins.isNotEmpty) {
+        _selectedPlugin = _availablePlugins.first;
+      } else {
+        _selectedPlugin = null;
+      }
+    });
+  }
+
+  void selectPlugin(PluginMeta plugin) {
+    if (_selectedPlugin == plugin) return;
+    _selectedPlugin = plugin;
+
+    // Hard flush state when swapping providers to prevent ghost data
+    _episodes = [];
+    _servers = [];
+    _streamLinks = [];
+    _selectedEpisode = null;
+    _selectedServer = null;
+    _selectedStream = null;
     notifyListeners();
+
+    if (_selectedServer != null) {
+      loadStreamLinks();
+    }
   }
 
   Future<void> loadEpisodes({required int anilistId}) async {
     await _execute(() async {
+      // Flush previous grid data before starting the new network request
+      _episodes = [];
+      _selectedEpisode = null;
+
       _episodes = await repository.fetchEpisodes(anilistId: anilistId);
       if (_episodes.isNotEmpty) {
         _selectedEpisode = _episodes.first;
@@ -65,6 +103,10 @@ class PlayerController extends ChangeNotifier {
     if (episode == null) return;
 
     await _execute(() async {
+      // Flush previous servers before starting the new network request
+      _servers = [];
+      _selectedServer = null;
+
       _servers = await repository.fetchServers(episode: episode);
       if (_servers.isNotEmpty) {
         _selectedServer = _servers.first;
@@ -72,36 +114,39 @@ class PlayerController extends ChangeNotifier {
     });
   }
 
-  // 🌟 UPDATED: Route stream extraction through the JS Engine
   Future<void> loadStreamLinks() async {
-    final episode = _selectedEpisode;
     final server = _selectedServer;
+    final plugin = _selectedPlugin;
 
-    if (episode == null || server == null) return;
+    if (server == null) throw Exception("No server selected.");
+    if (plugin == null) {
+      throw Exception("No extraction plugin selected. Check Registry.");
+    }
 
     await _execute(() async {
-      // Pass the server's URL (e.g., the Gogoanime episode link) to the JS scraper
-      // Note: Ensure your Server model exposes the target URL property
-      _streamLinks = await extractionService.getPlayableStreams(server.url);
+      // Flush previous streams before executing the JS extractor
+      _streamLinks = [];
+      _selectedStream = null;
+
+      _streamLinks = await pluginManager.execute(plugin, server.url);
 
       if (_streamLinks.isNotEmpty) {
         _selectedStream = _streamLinks.first;
       } else {
-        throw Exception(
-          "Engine failed to extract video streams from the source.",
-        );
+        throw Exception("Plugin [${plugin.name}] failed to extract streams.");
       }
     });
   }
 
   void selectEpisode(Episode episode) {
-    if (_selectedEpisode == episode) return;
+    if (_selectedEpisode == episode && _servers.isNotEmpty) return;
     _selectedEpisode = episode;
     _selectedServer = null;
     _selectedStream = null;
     _servers = [];
     _streamLinks = [];
     notifyListeners();
+    loadServers();
   }
 
   void selectServer(Server server) {
@@ -110,8 +155,6 @@ class PlayerController extends ChangeNotifier {
     _selectedStream = null;
     _streamLinks = [];
     notifyListeners();
-
-    // Auto-load streams when a user manually picks a new server
     loadStreamLinks();
   }
 
@@ -140,7 +183,6 @@ class PlayerController extends ChangeNotifier {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
-
       await operation();
     } catch (e) {
       _errorMessage = e.toString();

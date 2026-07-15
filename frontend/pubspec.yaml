@@ -51,8 +51,8 @@ dependencies:
   
   # A robust HTTP client for downloading the raw .js scripts from GitHub
   dio: ^5.4.3
-  path_provider: ^2.1.2
-
+  path_provider: ^2.1.6
+  get_it: ^9.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

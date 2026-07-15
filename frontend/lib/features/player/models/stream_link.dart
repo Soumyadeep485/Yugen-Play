@@ -17,120 +17,43 @@ class StreamLink {
 
   final String url;
   final String quality;
-  final String sourceName; // e.g., "Vidstreaming", "Filemoon"
-  final bool isM3U8; // True if it's an HLS stream
+  final String sourceName;
+  final bool isM3U8;
   final Map<String, String> headers;
   final List<SubtitleTrack> subtitles;
   final List<AudioTrack> audioTracks;
   final bool isHls;
   final bool isDefault;
 
-  StreamLink copyWith({
-    String? url,
-    String? quality,
-    String? sourceName,
-    bool? isM3U8,
-    Map<String, String>? headers,
-    List<SubtitleTrack>? subtitles,
-    List<AudioTrack>? audioTracks,
-    bool? isHls,
-    bool? isDefault,
-  }) {
-    return StreamLink(
-      url: url ?? this.url,
-      quality: quality ?? this.quality,
-      sourceName: sourceName ?? this.sourceName,
-      isM3U8: isM3U8 ?? this.isM3U8,
-      headers: headers ?? this.headers,
-      subtitles: subtitles ?? this.subtitles,
-      audioTracks: audioTracks ?? this.audioTracks,
-      isHls: isHls ?? this.isHls,
-      isDefault: isDefault ?? this.isDefault,
-    );
-  }
+  // ... keep the copyWith and toJson methods identical ...
 
-  Map<String, dynamic> toJson() {
-    return {
-      'url': url,
-      'quality': quality,
-      'sourceName': sourceName,
-      'isM3U8': isM3U8,
-      'headers': headers,
-      'subtitles': subtitles.map((subtitle) => subtitle.toJson()).toList(),
-      'audioTracks': audioTracks.map((track) => track.toJson()).toList(),
-      'isHls': isHls,
-      'isDefault': isDefault,
-    };
-  }
+  /// Strict parsing factory (The Ironclad Contract)
+  factory StreamLink.fromMap(Map<String, dynamic> map) {
+    // 1. Strict Validation: URL is absolutely non-negotiable.
+    final streamUrl = map['url']?.toString().trim();
+    if (streamUrl == null || streamUrl.isEmpty) {
+      throw const FormatException(
+        'StreamLink payload rejected: Missing mandatory "url" field.',
+      );
+    }
 
-  factory StreamLink.fromJson(Map<String, dynamic> json) {
-    final streamUrl = json['url'] as String? ?? '';
     return StreamLink(
       url: streamUrl,
-      quality: json['quality'] as String? ?? 'Auto',
-      sourceName: json['sourceName'] as String? ?? 'Unknown',
-      isM3U8: json['isM3U8'] as bool? ?? streamUrl.contains('.m3u8'),
-      headers: Map<String, String>.from(json['headers'] as Map? ?? const {}),
-      subtitles: (json['subtitles'] as List<dynamic>? ?? const [])
+      quality: map['quality']?.toString() ?? 'Auto',
+      sourceName: map['sourceName']?.toString() ?? 'Unknown Source',
+      isM3U8: map['isM3U8'] as bool? ?? streamUrl.contains('.m3u8'),
+      headers: Map<String, String>.from(map['headers'] as Map? ?? const {}),
+      subtitles: (map['subtitles'] as List<dynamic>? ?? const [])
           .map((item) => SubtitleTrack.fromJson(item as Map<String, dynamic>))
           .toList(),
-      audioTracks: (json['audioTracks'] as List<dynamic>? ?? const [])
+      audioTracks: (map['audioTracks'] as List<dynamic>? ?? const [])
           .map((item) => AudioTrack.fromJson(item as Map<String, dynamic>))
           .toList(),
-      isHls: json['isHls'] as bool? ?? streamUrl.contains('.m3u8'),
-      isDefault: json['isDefault'] as bool? ?? false,
+      isHls: map['isHls'] as bool? ?? streamUrl.contains('.m3u8'),
+      isDefault: map['isDefault'] as bool? ?? false,
     );
   }
 
-  @override
-  String toString() {
-    return 'StreamLink(source: $sourceName, quality: $quality, url: $url)';
-  }
-
-  @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
-
-    return other is StreamLink &&
-        other.url == url &&
-        other.quality == quality &&
-        other.sourceName == sourceName &&
-        other.isM3U8 == isM3U8 &&
-        _mapEquals(other.headers, headers) &&
-        _listEquals(other.subtitles, subtitles) &&
-        _listEquals(other.audioTracks, audioTracks) &&
-        other.isHls == isHls &&
-        other.isDefault == isDefault;
-  }
-
-  @override
-  int get hashCode => Object.hash(
-    url,
-    quality,
-    sourceName,
-    isM3U8,
-    Object.hashAll(headers.entries),
-    Object.hashAll(subtitles),
-    Object.hashAll(audioTracks),
-    isHls,
-    isDefault,
-  );
-
-  static bool _listEquals<T>(List<T> first, List<T> second) {
-    if (identical(first, second)) return true;
-    if (first.length != second.length) return false;
-    for (var i = 0; i < first.length; i++) {
-      if (first[i] != second[i]) return false;
-    }
-    return true;
-  }
-
-  static bool _mapEquals<K, V>(Map<K, V> first, Map<K, V> second) {
-    if (identical(first, second)) return true;
-    if (first.length != second.length) return false;
-    for (final key in first.keys) {
-      if (first[key] != second[key]) return false;
-    }
-    return true;
-  }
+  // Remove the duplicate `fromJson` factory completely to maintain a single source of truth.
+  // ... keep the toString, operator ==, and hashCode identical ...
 }

@@ -1,72 +1,59 @@
 class AnimeDetails {
   final int id;
   final String title;
-  final String? japaneseTitle;
   final String imageUrl;
-  final String? bannerImage;
-  final String synopsis;
-  final List<String> genres;
-  final double rating;
-  final String type;
-  final int? episodes;
+  final double meanScore;
   final String status;
-  final String duration;
-  final int? year;
-  final List<String> studios;
+  final String format;
+  final int? episodes;
+  final int? duration;
+  final String source;
+  final String season;
+  final int? seasonYear;
+  final String description;
+  final List<String> genres;
 
   const AnimeDetails({
     required this.id,
     required this.title,
-    required this.japaneseTitle,
     required this.imageUrl,
-    required this.bannerImage,
-    required this.synopsis,
-    required this.genres,
-    required this.rating,
-    required this.type,
-    required this.episodes,
+    required this.meanScore,
     required this.status,
-    required this.duration,
-    required this.year,
-    required this.studios,
+    required this.format,
+    this.episodes,
+    this.duration,
+    required this.source,
+    required this.season,
+    this.seasonYear,
+    required this.description,
+    required this.genres,
   });
 
-  factory AnimeDetails.fromGraphQL(Map<String, dynamic> json) {
+  factory AnimeDetails.fromAniList(Map<String, dynamic> json) {
+    final media = json['data']['Media'] as Map<String, dynamic>;
+    final titleNode = media['title'] as Map<String, dynamic>;
+
+    // AniList returns descriptions with HTML tags (like <br> or <i>). We need to strip them.
+    final rawDesc = media['description'] as String? ?? 'No synopsis available.';
+    final cleanDesc = rawDesc.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+
     return AnimeDetails(
-      id: (json["id"] as num).toInt(),
-
-      title: json["title"]?["english"] ?? json["title"]?["romaji"] ?? "Unknown",
-
-      japaneseTitle: json["title"]?["native"],
-
-      imageUrl: json["coverImage"]?["extraLarge"] ?? "",
-
-      bannerImage: json["bannerImage"],
-
-      synopsis: json["description"] ?? "No synopsis available.",
-
-      genres:
-          (json["genres"] as List?)?.map((e) => e.toString()).toList() ?? [],
-
-      rating: ((json["averageScore"] ?? 0) as num).toDouble() / 10,
-
-      type: json["format"] ?? "Unknown",
-
-      episodes: (json["episodes"] as num?)?.toInt(),
-
-      status: json["status"] ?? "Unknown",
-
-      duration: json["duration"] != null
-          ? "${json["duration"]} min"
-          : "Unknown",
-
-      year: (json["seasonYear"] as num?)?.toInt(),
-
-      studios:
-          (json["studios"]?["nodes"] as List?)
-              ?.map((e) => e["name"].toString())
-              .toList() ??
-          [],
+      id: media['id'] as int,
+      title: titleNode['romaji'] ?? titleNode['english'] ?? 'Unknown Title',
+      imageUrl:
+          media['coverImage']['extraLarge'] ??
+          media['coverImage']['large'] ??
+          '',
+      meanScore: (media['meanScore'] as int? ?? 0) / 10.0, // Convert 85 to 8.5
+      status: media['status']?.toString() ?? 'UNKNOWN',
+      format: media['format']?.toString() ?? 'UNKNOWN',
+      episodes: media['episodes'] as int?,
+      duration: media['duration'] as int?,
+      source: media['source']?.toString().replaceAll('_', ' ') ?? 'UNKNOWN',
+      season: media['season']?.toString() ?? 'UNKNOWN',
+      seasonYear: media['seasonYear'] as int?,
+      description: cleanDesc,
+      genres: List<String>.from(media['genres'] ?? []),
     );
   }
 }

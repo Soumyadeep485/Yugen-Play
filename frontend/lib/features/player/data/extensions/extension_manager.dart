@@ -1,68 +1,43 @@
 import 'dart:io';
-import 'package:dio/dio.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
-
-import '../../models/extension_manifest.dart';
 import 'js_runtime_provider.dart';
 
 class ExtensionManager {
-  final Dio _dio = Dio();
   final JsRuntimeProvider _jsRuntime;
 
-  // We inject the runtime so the manager can mount the scripts it downloads
+  // We inject the runtime provider cleanly via the constructor
   ExtensionManager(this._jsRuntime);
 
-  // Placeholder for the raw GitHub URL where your index.json will live
-  final String _repoIndexUrl =
-      'https://raw.githubusercontent.com/your-username/yugen-play-extensions/main/index.json';
-
-  /// Pings the remote repository and parses the list of available extensions
-  Future<List<ExtensionManifest>> fetchAvailableExtensions() async {
+  /// Reads a cached script file from disk and boots it safely into the isolated QuickJS sandbox
+  Future<bool> bootExtension(File scriptFile) async {
     try {
-      final response = await _dio.get(_repoIndexUrl);
-
-      // Assumes the JSON response has a root "extensions" array
-      final List<dynamic> data = response.data['extensions'];
-      return data.map((json) => ExtensionManifest.fromJson(json)).toList();
-    } catch (e) {
-      debugPrint('Failed to sync extension repository: $e');
-      return [];
-    }
-  }
-
-  /// Downloads the raw .js script and caches it safely on the device
-  Future<File?> downloadExtension(ExtensionManifest manifest) async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-
-      // Isolate the extensions in their own sub-directory
-      final extensionsDir = Directory('${dir.path}/extensions');
-      if (!await extensionsDir.exists()) {
-        await extensionsDir.create(recursive: true);
+      if (!await scriptFile.exists()) {
+        debugPrint(
+          '  Runtime Error: Cannot boot extension. Script file does not exist at path: ${scriptFile.path}',
+        );
+        return false;
       }
 
-      final file = File('${extensionsDir.path}/${manifest.id}.js');
+      final scriptContent = await scriptFile.readAsString();
+      final isLoaded = await _jsRuntime.loadScript(scriptContent);
 
-      // Download the raw JavaScript string directly to the file system
-      await _dio.download(manifest.scriptUrl, file.path);
-      debugPrint('Successfully downloaded extension: ${manifest.name}');
-
-      return file;
+      if (isLoaded) {
+        debugPrint(
+          '  Extension Runtime: Successfully booted execution context for ${scriptFile.path.split('/').last}',
+        );
+      }
+      return isLoaded;
     } catch (e) {
-      debugPrint('Failed to download extension payload: $e');
-      return null;
+      debugPrint('  Extension Runtime Exception during boot phase: $e');
+      return false;
     }
   }
 
-  /// Reads the cached file and mounts it into the QuickJS engine
-  Future<bool> bootExtension(File scriptFile) async {
-    if (!await scriptFile.exists()) {
-      debugPrint('Cannot boot: Script file does not exist.');
-      return false;
-    }
-
-    final scriptContent = await scriptFile.readAsString();
-    return await _jsRuntime.loadScript(scriptContent);
+  /// Evaluates a scraper target directly via the underlying VM wrapper
+  Future<String> executeScraperDirectly(
+    String jsContent,
+    String targetUrl,
+  ) async {
+    return await _jsRuntime.evaluateScraper(jsContent, targetUrl);
   }
 }

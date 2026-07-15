@@ -12,6 +12,8 @@ import 'widgets/player_video_surface.dart';
 import 'widgets/quality_selector_sheet.dart';
 import 'widgets/server_selector_sheet.dart';
 import 'widgets/subtitle_selector_sheet.dart';
+// Ensure this import points to your actual PlayerSelectionSheet location
+import 'widgets/player_selection_sheet.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
@@ -38,18 +40,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Initialize the media_kit playback engine
     _playbackController = PlaybackController();
 
-    // Listen to selection changes (e.g. user picks a new server/quality)
+    // Listen to selection changes
     _controller.addListener(_onPlayerStateChanged);
 
-    // Listen to playback state changes (e.g. playing, buffering) to update UI
+    // Listen to playback state changes
     _playbackController.addListener(_refresh);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _controller.loadPlugins();
+    });
   }
 
   @override
   void dispose() {
     _controller.removeListener(_onPlayerStateChanged);
     _playbackController.removeListener(_refresh);
-
     _playbackController.dispose();
     super.dispose();
   }
@@ -59,7 +64,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final selectedStream = _controller.selectedStream;
 
-    // If a new stream is selected and it differs from the current one, load & play it
     if (selectedStream != null &&
         selectedStream != _playbackController.currentStream) {
       _playbackController.setStream(selectedStream);
@@ -71,6 +75,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _showPluginSelector() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.background,
+      isScrollControlled: true,
+      builder: (_) => PlayerSelectionSheet(
+        title: "Select Scraper",
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: _controller.availablePlugins.length,
+          itemBuilder: (ctx, index) {
+            final plugin = _controller.availablePlugins[index];
+            final isSelected = _controller.selectedPlugin?.id == plugin.id;
+
+            return ListTile(
+              title: Text(
+                plugin.name,
+                style: const TextStyle(color: Colors.white),
+              ),
+              subtitle: Text(
+                "v${plugin.version}",
+                style: const TextStyle(color: Colors.grey),
+              ),
+              trailing: isSelected
+                  ? const Icon(Icons.check, color: AppColors.primary)
+                  : null,
+              onTap: () {
+                _controller.selectPlugin(plugin);
+                Navigator.pop(context);
+              },
+            );
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -129,6 +170,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
 
+          // Plugin Selection Button
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.sm,
+            ),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.extension_rounded),
+              label: Text(_controller.selectedPlugin?.name ?? "Select Scraper"),
+              onPressed: _showPluginSelector,
+            ),
+          ),
+
           PlayerInfoSection(
             animeTitle: widget.animeTitle,
             episode: _controller.selectedEpisode,
@@ -155,20 +209,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  // --- Selectors ---
+
   void _showEpisodeSelector() {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
       isScrollControlled: true,
-      builder: (_) {
-        return EpisodeSelectorSheet(
-          episodes: _controller.episodes,
-          selectedEpisode: _controller.selectedEpisode,
-          onEpisodeSelected: (episode) {
-            _controller.selectEpisode(episode);
-          },
-        );
-      },
+      builder: (_) => EpisodeSelectorSheet(
+        episodes: _controller.episodes,
+        selectedEpisode: _controller.selectedEpisode,
+        onEpisodeSelected: (episode) => _controller.selectEpisode(episode),
+      ),
     );
   }
 
@@ -176,15 +228,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
-      builder: (_) {
-        return ServerSelectorSheet(
-          servers: _controller.servers,
-          selectedServer: _controller.selectedServer,
-          onServerSelected: (server) {
-            _controller.selectServer(server);
-          },
-        );
-      },
+      builder: (_) => ServerSelectorSheet(
+        servers: _controller.servers,
+        selectedServer: _controller.selectedServer,
+        onServerSelected: (server) => _controller.selectServer(server),
+      ),
     );
   }
 
@@ -192,15 +240,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
-      builder: (_) {
-        return QualitySelectorSheet(
-          streamLinks: _controller.streamLinks,
-          selectedStream: _controller.selectedStream,
-          onQualitySelected: (stream) {
-            _controller.selectStream(stream);
-          },
-        );
-      },
+      builder: (_) => QualitySelectorSheet(
+        streamLinks: _controller.streamLinks,
+        selectedStream: _controller.selectedStream,
+        onQualitySelected: (stream) => _controller.selectStream(stream),
+      ),
     );
   }
 
@@ -208,15 +252,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
-      builder: (_) {
-        return SubtitleSelectorSheet(
-          subtitles: _controller.subtitleTracks,
-          selectedSubtitle: _controller.selectedSubtitle,
-          onSubtitleSelected: (subtitle) {
-            _controller.selectSubtitle(subtitle);
-          },
-        );
-      },
+      builder: (_) => SubtitleSelectorSheet(
+        subtitles: _controller.subtitleTracks,
+        selectedSubtitle: _controller.selectedSubtitle,
+        onSubtitleSelected: (subtitle) => _controller.selectSubtitle(subtitle),
+      ),
     );
   }
 
@@ -224,15 +264,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
-      builder: (_) {
-        return AudioSelectorSheet(
-          audioTracks: _controller.audioTracks,
-          selectedAudio: _controller.selectedAudio,
-          onAudioSelected: (audio) {
-            _controller.selectAudio(audio);
-          },
-        );
-      },
+      builder: (_) => AudioSelectorSheet(
+        audioTracks: _controller.audioTracks,
+        selectedAudio: _controller.selectedAudio,
+        onAudioSelected: (audio) => _controller.selectAudio(audio),
+      ),
     );
   }
 }

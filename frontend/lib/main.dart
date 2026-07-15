@@ -1,84 +1,53 @@
-import 'package:flutter/services.dart' show rootBundle;
-import 'dart:convert';
-import 'features/player/models/stream_link.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:media_kit/media_kit.dart';
 import 'app/app.dart';
 import 'core/storage/hive_service.dart';
-import 'package:media_kit/media_kit.dart';
-import 'features/player/data/extensions/js_runtime_provider.dart';
-import 'features/player/services/webview_bypass_service.dart';
+import 'features/player/data/registry/plugin_registry.dart';
+import 'service_locator.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  // Wrap the entire application in a secure Zone to catch silent native layer crashes
+  runZonedGuarded(
+    () async {
+      debugPrint('  1. Booting main() sequence...');
+      WidgetsFlutterBinding.ensureInitialized();
+      // Inside your main() function before runApp()
+      await Hive.initFlutter();
+      await Hive.openBox(
+        'extension_settings',
+      ); // The persistent storage for our toggles
 
-  // 1. Boot up the JS Sandbox Engine
-  final jsProvider = JsRuntimeProvider();
-  jsProvider.initialize();
+      // Catch UI-level Flutter errors
+      FlutterError.onError = (FlutterErrorDetails details) {
+        FlutterError.presentError(details);
+        debugPrint('FLUTTER UI ERROR: ${details.exception}');
+      };
 
-  // 2. Initialize Core Services
-  MediaKit.ensureInitialized();
-  await HiveService.initialize();
+      debugPrint('  2. Widgets bound. Initializing MediaKit...');
+      // Initialize the libmpv backend required for HLS streaming
+      MediaKit.ensureInitialized();
 
-  // 3. Run the JS Smoke Tests
-  const testScript = '''
-    function verifySandbox(a, b) {
-      return (a + b).toString();
-    }
-  ''';
+      debugPrint('  3. MediaKit ready. Initializing Hive Flutter...');
+      await Hive.initFlutter();
 
-  try {
-    // --- Contract Test ---
-    final mockScript = await rootBundle.loadString(
-      'assets/extensions/mock_gogo.js',
-    );
-    final loadedMock = await jsProvider.loadScript(mockScript);
+      debugPrint('  4. Hive Flutter ready. Initializing HiveService...');
+      await HiveService.initialize();
 
-    if (loadedMock) {
-      final String? jsonResult = await jsProvider.callFunction(
-        'extractStreams',
-        ['https://gogoanime/category/overlord-ii-episode-1'],
-      );
+      debugPrint('  5. HiveService ready. Setting up dependency locator...');
+      setupLocator();
 
-      if (jsonResult != null) {
-        final List<dynamic> decoded = jsonDecode(jsonResult);
-        final links = decoded.map((item) => StreamLink.fromJson(item)).toList();
+      debugPrint('  6. Locator ready. Booting PluginRegistry...');
+      await locator<PluginRegistry>().init();
 
-        debugPrint('🧪 CONTRACT TEST SUCCESS!');
-        debugPrint('🚀 Extracted Stream Link: ${links.first.url}');
-      }
-    }
-  } catch (e) {
-    debugPrint('🧪 CONTRACT TEST FAILED: $e');
-  }
-
-  // --- Basic Sandbox Test ---
-  final loadedSandbox = await jsProvider.loadScript(testScript);
-  if (loadedSandbox) {
-    final result = await jsProvider.callFunction('verifySandbox', [40, 2]);
-    debugPrint('🧪 JS SANDBOX TEST RESULT: $result (Expected: 42)');
-  }
-
-  // 4. Headless Cloudflare Bypass Test
-  debugPrint('🤖 Initiating Headless Cloudflare Bypass Test...');
-
-  // 🌟 FIX: Instantiate the service before calling it
-  final bypassService = WebviewBypassService();
-
-  final headers = await bypassService.getBypassedHeaders(
-    'https://nowsecure.nl',
+      debugPrint('  7. ALL SYSTEMS GO. Launching UI...');
+      runApp(const YugenPlayApp());
+    },
+    (error, stackTrace) {
+      // This will catch any fatal errors thrown by the media_kit C++ engine
+      debugPrint('CRITICAL UNHANDLED EXCEPTION: $error');
+      debugPrint(stackTrace.toString());
+    },
   );
-
-  if (headers != null) {
-    debugPrint('🛡️ BYPASS SUCCESS!');
-    debugPrint('🍪 Extracted Cookies: ${headers['Cookie']}');
-    debugPrint('🕵️ Spoofed User-Agent: ${headers['User-Agent']}');
-  } else {
-    debugPrint('❌ BYPASS FAILED: Could not resolve headers.');
-  }
-
-  // Clean up the headless browser process so it doesn't eat memory
-  bypassService.dispose();
-
-  // 5. Boot the UI (Must always be outside the if-block)
-  runApp(const YugenPlayApp());
 }
