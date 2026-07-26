@@ -25,11 +25,46 @@ class StreamLink {
   final bool isHls;
   final bool isDefault;
 
-  // ... keep the copyWith and toJson methods identical ...
+  StreamLink copyWith({
+    String? url,
+    String? quality,
+    String? sourceName,
+    bool? isM3U8,
+    Map<String, String>? headers,
+    List<SubtitleTrack>? subtitles,
+    List<AudioTrack>? audioTracks,
+    bool? isHls,
+    bool? isDefault,
+  }) {
+    return StreamLink(
+      url: url ?? this.url,
+      quality: quality ?? this.quality,
+      sourceName: sourceName ?? this.sourceName,
+      isM3U8: isM3U8 ?? this.isM3U8,
+      headers: headers ?? this.headers,
+      subtitles: subtitles ?? this.subtitles,
+      audioTracks: audioTracks ?? this.audioTracks,
+      isHls: isHls ?? this.isHls,
+      isDefault: isDefault ?? this.isDefault,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'url': url,
+      'quality': quality,
+      'sourceName': sourceName,
+      'isM3U8': isM3U8,
+      'headers': headers,
+      'subtitles': subtitles.map((s) => s.toJson()).toList(),
+      'audioTracks': audioTracks.map((a) => a.toJson()).toList(),
+      'isHls': isHls,
+      'isDefault': isDefault,
+    };
+  }
 
   /// Strict parsing factory (The Ironclad Contract)
   factory StreamLink.fromMap(Map<String, dynamic> map) {
-    // 1. Strict Validation: URL is absolutely non-negotiable.
     final streamUrl = map['url']?.toString().trim();
     if (streamUrl == null || streamUrl.isEmpty) {
       throw const FormatException(
@@ -54,6 +89,30 @@ class StreamLink {
     );
   }
 
-  // Remove the duplicate `fromJson` factory completely to maintain a single source of truth.
-  // ... keep the toString, operator ==, and hashCode identical ...
+  @override
+  String toString() {
+    return 'StreamLink('
+        'url: $url, '
+        'quality: $quality, '
+        'sourceName: $sourceName, '
+        'isM3U8: $isM3U8, '
+        'isHls: $isHls'
+        ')';
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is StreamLink &&
+        other.url == url &&
+        other.quality == quality &&
+        other.sourceName == sourceName &&
+        other.isM3U8 == isM3U8 &&
+        other.isHls == isHls &&
+        other.isDefault == isDefault;
+  }
+
+  @override
+  int get hashCode => Object.hash(url, quality, sourceName, isM3U8, isHls, isDefault);
 }

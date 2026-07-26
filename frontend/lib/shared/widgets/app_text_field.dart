@@ -26,7 +26,8 @@ class AppTextField extends StatelessWidget {
         hintText: hintText,
         prefixIcon: Icon(prefixIcon, color: AppColors.textSecondary),
         filled: true,
-        fillColor: const Color(0xFF1B1B1B),
+        // Replaced hardcoded Color(0xFF1B1B1B) with your theme color
+        fillColor: AppColors.card,
 
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
@@ -40,7 +41,7 @@ class AppTextField extends StatelessWidget {
 
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.md),
-          borderSide: BorderSide(color: AppColors.primary, width: 2),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
         ),
       ),
     );

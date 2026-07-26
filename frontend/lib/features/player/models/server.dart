@@ -1,4 +1,4 @@
-import '../data/streaming_source.dart';
+import 'streaming_source.dart';
 
 /// Represents a streaming server exposed by a media provider.
 class Server {
@@ -36,7 +36,7 @@ class Server {
     return {
       'id': id,
       'name': name,
-      'url': url, // <-- ADDED
+      'url': url,
       'source': source.toJson(),
       'priority': priority,
     };
@@ -57,7 +57,7 @@ class Server {
     return 'Server('
         'id: $id, '
         'name: $name, '
-        'url: $url, ' // <-- ADDED
+        'url: $url, '
         'source: ${source.displayName}, '
         'priority: $priority'
         ')';
@@ -72,11 +72,11 @@ class Server {
     return other is Server &&
         other.id == id &&
         other.name == name &&
-        other.url == url && // <-- ADDED
+        other.url == url &&
         other.source == source &&
         other.priority == priority;
   }
 
   @override
-  int get hashCode => Object.hash(id, name, url, source, priority); // <-- ADDED
+  int get hashCode => Object.hash(id, name, url, source, priority);
 }

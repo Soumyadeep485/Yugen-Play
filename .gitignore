@@ -1,11 +1,49 @@
-# Operating System
+# ==========================================================
+# Flutter
+# ==========================================================
+frontend/.dart_tool/
+frontend/build/
+frontend/.pub/
+frontend/.packages
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+
+!frontend/pubspec.lock
+
+frontend/**/generated_plugin_registrant.dart
+frontend/**/flutter_export_environment.sh
+
+# ==========================================================
+# Android
+# ==========================================================
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/local.properties
+frontend/android/.kotlin/
+
+# ==========================================================
+# Rust
+# ==========================================================
+frontend/rust/target/
+frontend/rust_builder/.dart_tool/
+frontend/rust_builder/target/
+
+# ==========================================================
+# IDE
+# ==========================================================
+.vscode/
+.idea/
+*.iml
+
+# ==========================================================
+# OS
+# ==========================================================
 .DS_Store
 Thumbs.db
 
-# VS Code
-.vscode/
-
+# ==========================================================
 # Logs
+<<<<<<< HEAD
 *.log
 # ==========================================================
 # Flutter
@@ -125,4 +163,9 @@ Thumbs.db
 # ==========================================================
 *.orig
 *.rej
+
+=======
+# ==========================================================
+*.log
+*.tmp
 

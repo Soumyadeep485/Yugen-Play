@@ -2,6 +2,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Added JitPack safeguard for native plugin dependencies
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

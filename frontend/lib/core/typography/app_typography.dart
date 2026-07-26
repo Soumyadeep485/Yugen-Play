@@ -8,13 +8,9 @@ class AppTypography {
     return GoogleFonts.poppinsTextTheme(
       const TextTheme(
         displayLarge: TextStyle(fontWeight: FontWeight.bold),
-
         headlineLarge: TextStyle(fontWeight: FontWeight.bold),
-
         titleLarge: TextStyle(fontWeight: FontWeight.w600),
-
         bodyLarge: TextStyle(fontWeight: FontWeight.w400),
-
         bodyMedium: TextStyle(fontWeight: FontWeight.w400),
       ),
     );

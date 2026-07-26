@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import 'interceptors/ua_interceptor.dart';
+import 'interceptors/user_agent_interceptor.dart';
 
 class AppNetworkClient {
   late final Dio _dio;
@@ -13,13 +13,10 @@ class AppNetworkClient {
       ),
     );
 
-    // Attach our global interceptors
     _dio.interceptors.addAll([
       UserAgentInterceptor(),
-      // Future location for the WebviewBypassInterceptor
     ]);
   }
 
-  /// Exposes the secure pre-configured Dio instance to other clients
   Dio get dio => _dio;
 }

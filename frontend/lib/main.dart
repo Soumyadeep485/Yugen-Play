@@ -1,53 +1,32 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:frontend/features/player/services/extension_manager.dart';
+// 🛑 Add the MediaKit import
 import 'package:media_kit/media_kit.dart';
-import 'app/app.dart';
+
+import 'app/yugen_play_app.dart';
 import 'core/storage/hive_service.dart';
-import 'features/player/data/registry/plugin_registry.dart';
 import 'service_locator.dart';
+import 'src/rust/frb_generated.dart';
 
-Future<void> main() async {
-  // Wrap the entire application in a secure Zone to catch silent native layer crashes
-  runZonedGuarded(
-    () async {
-      debugPrint('  1. Booting main() sequence...');
-      WidgetsFlutterBinding.ensureInitialized();
-      // Inside your main() function before runApp()
-      await Hive.initFlutter();
-      await Hive.openBox(
-        'extension_settings',
-      ); // The persistent storage for our toggles
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-      // Catch UI-level Flutter errors
-      FlutterError.onError = (FlutterErrorDetails details) {
-        FlutterError.presentError(details);
-        debugPrint('FLUTTER UI ERROR: ${details.exception}');
-      };
+  // 🛑 Initialize MediaKit BEFORE anything else tries to use it
+  MediaKit.ensureInitialized();
 
-      debugPrint('  2. Widgets bound. Initializing MediaKit...');
-      // Initialize the libmpv backend required for HLS streaming
-      MediaKit.ensureInitialized();
+  // Initialize Hive Local Storage
+  await HiveService.initialize();
 
-      debugPrint('  3. MediaKit ready. Initializing Hive Flutter...');
-      await Hive.initFlutter();
+  // Initialize the Rust native bridge library
+  await RustLib.init();
 
-      debugPrint('  4. Hive Flutter ready. Initializing HiveService...');
-      await HiveService.initialize();
+  // Setup GetIt Service Locator
+  setupServiceLocator();
 
-      debugPrint('  5. HiveService ready. Setting up dependency locator...');
-      setupLocator();
+  // Inside your main init function or Splash Screen:
+  final extensionManager = locator<ExtensionManager>();
+  await extensionManager.loadInstalledExtensions();
 
-      debugPrint('  6. Locator ready. Booting PluginRegistry...');
-      await locator<PluginRegistry>().init();
-
-      debugPrint('  7. ALL SYSTEMS GO. Launching UI...');
-      runApp(const YugenPlayApp());
-    },
-    (error, stackTrace) {
-      // This will catch any fatal errors thrown by the media_kit C++ engine
-      debugPrint('CRITICAL UNHANDLED EXCEPTION: $error');
-      debugPrint(stackTrace.toString());
-    },
-  );
+  runApp(const ProviderScope(child: YugenPlayApp()));
 }
