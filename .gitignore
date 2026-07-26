@@ -7,3 +7,122 @@ Thumbs.db
 
 # Logs
 *.log
+# ==========================================================
+# Flutter
+# ==========================================================
+frontend/.dart_tool/
+frontend/build/
+frontend/.pub/
+frontend/.packages
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+
+# Keep pubspec.lock (Flutter app)
+!frontend/pubspec.lock
+
+# Generated Flutter files
+frontend/**/generated_plugin_registrant.dart
+frontend/**/flutter_export_environment.sh
+frontend/**/.flutter-plugins
+frontend/**/.flutter-plugins-dependencies
+
+# ==========================================================
+# Dart
+# ==========================================================
+*.dill
+.dartServer/
+
+# ==========================================================
+# Android / Gradle
+# ==========================================================
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/local.properties
+frontend/android/captures/
+frontend/**/captures/
+
+# APK / AAB outputs
+*.apk
+*.aab
+*.ap_
+*.idsig
+
+# Native debug symbols
+*.so.sym
+native-debug-symbols.zip
+mapping.txt
+
+# ==========================================================
+# iOS / macOS
+# ==========================================================
+frontend/ios/Pods/
+frontend/ios/.symlinks/
+frontend/ios/Flutter/Flutter.framework
+frontend/ios/Flutter/App.framework
+frontend/macos/Pods/
+frontend/macos/Flutter/ephemeral/
+
+# ==========================================================
+# Linux / Windows
+# ==========================================================
+frontend/linux/flutter/ephemeral/
+frontend/windows/flutter/ephemeral/
+
+# ==========================================================
+# Rust
+# ==========================================================
+frontend/rust/target/
+frontend/rust_builder/target/
+
+# Cargo backup files
+**/*.rs.bk
+
+# ==========================================================
+# flutter_rust_bridge
+# ==========================================================
+frontend/build/rust_lib_frontend/
+frontend/build/flutter_go_torrent_streamer/
+
+# ==========================================================
+# CMake / Native
+# ==========================================================
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# ==========================================================
+# IDE
+# ==========================================================
+.idea/
+.vscode/
+*.iml
+
+# ==========================================================
+# Logs
+# ==========================================================
+*.log
+*.tmp
+
+# ==========================================================
+# OS
+# ==========================================================
+.DS_Store
+Thumbs.db
+
+# ==========================================================
+# Archives
+# ==========================================================
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# ==========================================================
+# Misc
+# ==========================================================
+*.orig
+*.rej
+
