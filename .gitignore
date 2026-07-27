@@ -1,5 +1,22 @@
 # ==========================================================
-# Flutter
+# Private & Sensitive Data / Scrapers & Keys
+# ==========================================================
+# Environment & Secret files
+.env
+*.env
+*.env.*
+**/secrets.dart
+**/api_keys.dart
+**/keys.dart
+
+# Sensitive Scraper & Provider Services
+**/anikoto_extension_service.dart
+**/*_extension_service.dart
+**/crypto/
+**/keys/
+
+# ==========================================================
+# Flutter & Dart
 # ==========================================================
 frontend/.dart_tool/
 frontend/build/
@@ -8,54 +25,7 @@ frontend/.packages
 frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
 
-!frontend/pubspec.lock
-
-frontend/**/generated_plugin_registrant.dart
-frontend/**/flutter_export_environment.sh
-
-# ==========================================================
-# Android
-# ==========================================================
-frontend/android/.gradle/
-frontend/android/build/
-frontend/android/local.properties
-frontend/android/.kotlin/
-
-# ==========================================================
-# Rust
-# ==========================================================
-frontend/rust/target/
-frontend/rust_builder/.dart_tool/
-frontend/rust_builder/target/
-
-# ==========================================================
-# IDE
-# ==========================================================
-.vscode/
-.idea/
-*.iml
-
-# ==========================================================
-# OS
-# ==========================================================
-.DS_Store
-Thumbs.db
-
-# ==========================================================
-# Logs
-<<<<<<< HEAD
-*.log
-# ==========================================================
-# Flutter
-# ==========================================================
-frontend/.dart_tool/
-frontend/build/
-frontend/.pub/
-frontend/.packages
-frontend/.flutter-plugins
-frontend/.flutter-plugins-dependencies
-
-# Keep pubspec.lock (Flutter app)
+# Keep pubspec.lock
 !frontend/pubspec.lock
 
 # Generated Flutter files
@@ -64,14 +34,11 @@ frontend/**/flutter_export_environment.sh
 frontend/**/.flutter-plugins
 frontend/**/.flutter-plugins-dependencies
 
-# ==========================================================
-# Dart
-# ==========================================================
 *.dill
 .dartServer/
 
 # ==========================================================
-# Android / Gradle
+# Android / Gradle & Native Builds
 # ==========================================================
 frontend/android/.gradle/
 frontend/android/build/
@@ -79,6 +46,7 @@ frontend/android/app/build/
 frontend/android/local.properties
 frontend/android/captures/
 frontend/**/captures/
+frontend/android/.kotlin/
 
 # APK / AAB outputs
 *.apk
@@ -108,19 +76,16 @@ frontend/linux/flutter/ephemeral/
 frontend/windows/flutter/ephemeral/
 
 # ==========================================================
-# Rust
+# Rust & flutter_rust_bridge
 # ==========================================================
 frontend/rust/target/
+frontend/rust_builder/.dart_tool/
 frontend/rust_builder/target/
+frontend/build/rust_lib_frontend/
+frontend/build/flutter_go_torrent_streamer/
 
 # Cargo backup files
 **/*.rs.bk
-
-# ==========================================================
-# flutter_rust_bridge
-# ==========================================================
-frontend/build/rust_lib_frontend/
-frontend/build/flutter_go_torrent_streamer/
 
 # ==========================================================
 # CMake / Native
@@ -132,40 +97,26 @@ compile_commands.json
 Makefile
 
 # ==========================================================
-# IDE
+# IDE & Editors
 # ==========================================================
 .idea/
 .vscode/
 *.iml
 
 # ==========================================================
-# Logs
+# Logs, Temp & OS Files
 # ==========================================================
 *.log
 *.tmp
-
-# ==========================================================
-# OS
-# ==========================================================
 .DS_Store
 Thumbs.db
 
 # ==========================================================
-# Archives
+# Archives & Backups
 # ==========================================================
 *.zip
 *.tar
 *.tar.gz
 *.7z
-
-# ==========================================================
-# Misc
-# ==========================================================
 *.orig
 *.rej
-
-=======
-# ==========================================================
-*.log
-*.tmp
-
