@@ -39,3 +39,7 @@ Always clear out stale cache files before a production build:
 ```bash
 flutter clean
 flutter pub get
+
+
+🤝 Contributing
+Feel free to open issues or submit pull requests if you find streaming sources that break the scraper or if you want to contribute UI improvements.
