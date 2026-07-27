@@ -4,31 +4,34 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../player/models/stream_link.dart';
+import '../../player/models/subtitle_track.dart';
 
 class AnikotoExtensionService {
   static const String baseUrl = 'https://anikoto.cz';
+  static final Map<String, String> _slugCache = {};
 
   Future<List<StreamLink>> extractStreams(String episodeId) async {
     List<StreamLink> collectedStreams = [];
     int subCount = 0;
     int dubCount = 0;
-    const int maxPerType = 2; // Stop after collecting 2 Sub and 2 Dub streams
+    const int maxPerType = 2;
 
     try {
       final parts = episodeId.split('-ep-');
       final rawTitle = parts.first.trim();
       final epNumber = parts.length > 1 ? parts.last : '1';
-
       String epUrl = '';
 
-      // PHASE 1: Slug Resolution
-      if (rawTitle.contains(' ') ||
-          !RegExp(r'^[a-z0-9\-]+$').hasMatch(rawTitle.toLowerCase())) {
-        debugPrint('🔎 [Anikoto] Formatting title slug for: "$rawTitle"');
+      String? baseSlug = _slugCache[rawTitle];
 
-        final vrfQuery = _vrfEncrypt(rawTitle);
+      if (baseSlug == null) {
+        final searchQuery = rawTitle
+            .replaceAll(RegExp(r'[^a-zA-Z0-9\s]'), ' ')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        final vrfQuery = _vrfEncrypt(searchQuery);
         final searchUrl =
-            '$baseUrl/filter?keyword=${Uri.encodeComponent(rawTitle)}&vrf=$vrfQuery';
+            '$baseUrl/filter?keyword=${Uri.encodeComponent(searchQuery)}&vrf=$vrfQuery';
 
         final searchRes = await http.get(
           Uri.parse(searchUrl),
@@ -41,33 +44,60 @@ class AnikotoExtensionService {
 
         if (searchRes.statusCode != 200) return [];
 
-        final slugMatch = RegExp(
+        final slugMatches = RegExp(
           r'href="([^"]*/watch/[^"]+)"',
-        ).firstMatch(searchRes.body);
-        if (slugMatch != null) {
-          var baseSlug = slugMatch.group(1)!.split('?').first;
-          if (baseSlug.startsWith('http')) {
-            baseSlug = Uri.parse(baseSlug).path;
+        ).allMatches(searchRes.body);
+
+        if (slugMatches.isNotEmpty) {
+          String? bestSlug;
+          final targetSlug = rawTitle
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+              .replaceAll(RegExp(r'^-+|-+$'), '');
+
+          for (final match in slugMatches) {
+            String foundSlug = match.group(1)!;
+            if (foundSlug.startsWith('http')) {
+              foundSlug = Uri.parse(foundSlug).path;
+            }
+            foundSlug = foundSlug.replaceAll(RegExp(r'/ep-\d+.*'), '');
+
+            final slugPart = foundSlug.split('/watch/').last;
+            if (slugPart == targetSlug) {
+              bestSlug = foundSlug;
+              break;
+            } else if (slugPart.startsWith('$targetSlug-')) {
+              final remainder = slugPart.substring(targetSlug.length + 1);
+              if (!remainder.contains('-') && remainder.length < 10) {
+                bestSlug = foundSlug;
+                break;
+              }
+            }
           }
-          baseSlug = baseSlug.replaceAll(RegExp(r'/ep-\d+.*'), '');
-          epUrl = '$baseSlug/ep-$epNumber';
+
+          if (bestSlug == null) {
+            String firstSlug = slugMatches.first.group(1)!;
+            if (firstSlug.startsWith('http')) {
+              firstSlug = Uri.parse(firstSlug).path;
+            }
+            bestSlug = firstSlug.replaceAll(RegExp(r'/ep-\d+.*'), '');
+          }
+
+          baseSlug = bestSlug;
+          _slugCache[rawTitle] = baseSlug;
         } else {
           return [];
         }
-      } else {
-        epUrl = '/watch/$rawTitle/ep-$epNumber';
       }
 
-      // PHASE 2: Fetch Episode Page & ID
+      epUrl = '$baseSlug/ep-$epNumber';
       final pageRes = await http.get(Uri.parse('$baseUrl$epUrl'));
       final animeIdMatch =
           RegExp(r'data-id="([^"]+)"').firstMatch(pageRes.body) ??
           RegExp(r'data-tip="([^"]+)"').firstMatch(pageRes.body);
-
       if (animeIdMatch == null) return [];
-      final animeId = animeIdMatch.group(1)!;
 
-      // PHASE 3: Fetch Episode List
+      final animeId = animeIdMatch.group(1)!;
       final vrf = _vrfEncrypt(animeId);
       final epListRes = await http.get(
         Uri.parse('$baseUrl/ajax/episode/list/$animeId?vrf=$vrf'),
@@ -78,14 +108,11 @@ class AnikotoExtensionService {
       );
 
       final epListJson = jsonDecode(epListRes.body);
-      final epListHtml = epListJson['result'] ?? '';
-
       final epRegex = RegExp('data-num="$epNumber"[^>]*data-ids="([^"]+)"');
-      final epMatch = epRegex.firstMatch(epListHtml);
+      final epMatch = epRegex.firstMatch(epListJson['result'] ?? '');
       if (epMatch == null) return [];
-      final serverIdsStr = epMatch.group(1)!;
 
-      // PHASE 4: Fetch Server List
+      final serverIdsStr = epMatch.group(1)!;
       final serverListRes = await http.get(
         Uri.parse('$baseUrl/ajax/server/list?servers=$serverIdsStr'),
         headers: {
@@ -93,25 +120,17 @@ class AnikotoExtensionService {
           'Referer': '$baseUrl$epUrl',
         },
       );
-      final serverListJson = jsonDecode(serverListRes.body);
-      final serverListHtml = serverListJson['result'] ?? '';
 
       final serverMatches = RegExp(
         r'data-link-id="([^"]+)"[^>]*>([^<]+)<',
-      ).allMatches(serverListHtml);
+      ).allMatches(jsonDecode(serverListRes.body)['result'] ?? '');
 
       for (final match in serverMatches) {
-        if (subCount >= maxPerType && dubCount >= maxPerType) {
-          debugPrint(
-            '🛑 [Anikoto] Reached target limit ($maxPerType Sub, $maxPerType Dub). Stopping search.',
-          );
-          break;
-        }
+        if (subCount >= maxPerType && dubCount >= maxPerType) break;
 
         final linkId = match.group(1)!;
         final serverName = match.group(2)!.trim();
 
-        // PHASE 5: Get Embed Link
         final embedRes = await http.get(
           Uri.parse('$baseUrl/ajax/server?get=$linkId'),
           headers: {
@@ -121,24 +140,18 @@ class AnikotoExtensionService {
         );
 
         if (embedRes.statusCode != 200) continue;
-
-        final embedJson = jsonDecode(embedRes.body);
-        var embedUrl = embedJson['result']?['url']?.toString();
+        var embedUrl = jsonDecode(embedRes.body)['result']?['url']?.toString();
 
         if (embedUrl != null && embedUrl.isNotEmpty) {
           if (embedUrl.startsWith('//')) {
             embedUrl = 'https:$embedUrl';
-          } else if (embedUrl.startsWith('/')) {
-            embedUrl = '$baseUrl$embedUrl';
-          }
+          } else if (embedUrl.startsWith('/')) embedUrl = '$baseUrl$embedUrl';
 
           final isDub = embedUrl.toLowerCase().contains('/dub');
           if (isDub && dubCount >= maxPerType) continue;
           if (!isDub && subCount >= maxPerType) continue;
 
-          // Attempt Dart Extraction first
           final streams = await _extractFromPlayer(embedUrl, serverName);
-
           for (var stream in streams) {
             if (stream.quality.contains('DUB') && dubCount < maxPerType) {
               collectedStreams.add(stream);
@@ -165,8 +178,8 @@ class AnikotoExtensionService {
     try {
       final uri = Uri.parse(embedUrl);
       final host = uri.host;
-
       String streamType = '';
+
       if (uri.pathSegments.isNotEmpty) {
         final lastSegment = uri.pathSegments.last.toLowerCase();
         if (['sub', 'dub', 'hsub'].contains(lastSegment)) {
@@ -180,39 +193,32 @@ class AnikotoExtensionService {
           'Referer': '$baseUrl/',
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept':
-              'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         },
       );
 
-      final playerHtml = playerRes.body;
-      final String cookies = playerRes.headers['set-cookie'] ?? '';
-
-      final dataIdMatch = RegExp(r'data-id="([^"]+)"').firstMatch(playerHtml);
+      final dataIdMatch = RegExp(r'data-id="([^"]+)"').firstMatch(playerRes.body);
 
       if (dataIdMatch != null) {
         final dataId = dataIdMatch.group(1)!;
-
         final apiHeaders = {
           'X-Requested-With': 'XMLHttpRequest',
           'Referer': embedUrl,
           'Origin': 'https://$host',
-          'Accept': '*/*',
           'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         };
 
-        if (cookies.isNotEmpty) {
-          apiHeaders['Cookie'] = cookies;
+        if ((playerRes.headers['set-cookie'] ?? '').isNotEmpty) {
+          apiHeaders['Cookie'] = playerRes.headers['set-cookie']!;
         }
 
-        var apiUrl = 'https://$host/stream/getSourcesNew?id=$dataId&id=$dataId';
+        var apiUrl =
+            'https://$host/stream/getSourcesNew?id=$dataId&id=$dataId';
         if (streamType.isNotEmpty) {
           apiUrl += '&type=$streamType&type=$streamType';
         }
 
         var apiRes = await http.get(Uri.parse(apiUrl), headers: apiHeaders);
-
         if (apiRes.statusCode != 200 ||
             apiRes.body.isEmpty ||
             apiRes.body.contains('error')) {
@@ -221,58 +227,63 @@ class AnikotoExtensionService {
         }
 
         final Map<String, dynamic> apiJson = jsonDecode(apiRes.body);
+        final List<SubtitleTrack> extractedSubtitles = [];
+
+        List dynamicTracks = [];
+        if (apiJson['tracks'] is List) {
+          dynamicTracks = apiJson['tracks'];
+        } else if (apiJson['result'] != null &&
+            apiJson['result']['tracks'] is List) {
+          dynamicTracks = apiJson['result']['tracks'];
+        } else if (apiJson['subtitles'] is List) {
+          dynamicTracks = apiJson['subtitles'];
+        }
+
+        for (var track in dynamicTracks) {
+          if (track is! Map) continue;
+
+          final kind = track['kind']?.toString().toLowerCase() ?? '';
+          var fileUrl =
+              track['file']?.toString() ?? track['url']?.toString() ?? '';
+
+          if (fileUrl.isNotEmpty &&
+              (kind == 'captions' || kind == 'subtitles')) {
+            if (fileUrl.startsWith('/')) {
+              fileUrl = 'https://$host$fileUrl';
+            }
+
+            final Map<String, dynamic> trackMap =
+                Map<String, dynamic>.from(track);
+            trackMap['url'] = fileUrl;
+            trackMap['file'] = fileUrl;
+
+            try {
+              extractedSubtitles.add(SubtitleTrack.fromJson(trackMap));
+            } catch (e) {
+              debugPrint('🚨 [Subtitle Error]: $e');
+            }
+          }
+        }
+
+        debugPrint('Total Valid Subtitles Extracted: ${extractedSubtitles.length}');
+
         final parsedStreams = _parseSources(apiJson['sources']);
-
         if (parsedStreams.isNotEmpty) {
-          final prefix = streamType.isNotEmpty
-              ? streamType.toUpperCase()
-              : 'SUB';
-          final streamUrl = parsedStreams.first.url;
-          debugPrint('🔥 [Anikoto] MASTER M3U8 FOUND: $streamUrl');
-
+          final prefix =
+              streamType.isNotEmpty ? streamType.toUpperCase() : 'SUB';
           return [
             StreamLink(
-              sourceName: serverName, // Cleaned up prefix
+              sourceName: serverName,
               quality: '$prefix - Auto - 1080P',
-              url: streamUrl,
+              url: parsedStreams.first.url,
               headers: {
                 'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://$host/',
               },
               isHls: true,
               isM3U8: true,
-            ),
-          ];
-        } else {
-          debugPrint(
-            '🚨 [Anikoto] Internal API returned empty sources for $serverName',
-          );
-        }
-      } else {
-        final jsM3u8Match = RegExp(
-          r'file\s*:\s*["'
-          "'"
-          r'](https?://[^"'
-          "'"
-          r']+\.m3u8[^"'
-          "'"
-          r']*)["'
-          "'"
-          r']',
-        ).firstMatch(playerHtml);
-        if (jsM3u8Match != null) {
-          final directM3u8 = jsM3u8Match.group(1)!;
-          final prefix = streamType.isNotEmpty
-              ? streamType.toUpperCase()
-              : 'SUB';
-          return [
-            StreamLink(
-              sourceName: serverName, // Cleaned up prefix
-              quality: '$prefix - Auto - 1080P',
-              url: directM3u8,
-              isHls: true,
-              isM3U8: true,
+              subtitles: extractedSubtitles,
             ),
           ];
         }
@@ -285,7 +296,6 @@ class AnikotoExtensionService {
 
   List<StreamLink> _parseSources(dynamic sourcesData) {
     final List<StreamLink> sources = [];
-
     if (sourcesData == null) return sources;
 
     if (sourcesData is Map<String, dynamic>) {
@@ -322,10 +332,6 @@ class AnikotoExtensionService {
     return sources;
   }
 
-  // =========================================================================
-  // WEBSITE VRF FUNCTIONS (Required for navigating Anikoto's AJAX menus)
-  // =========================================================================
-
   String _vrfEncrypt(String input) {
     String vrf = input;
     vrf = _exchange(vrf, "AP6GeR8H0lwUz1", "UAz8Gwl10P6ReH");
@@ -357,14 +363,12 @@ class AnikotoExtensionService {
     List<int> data = utf8.encode(input);
     List<int> s = List.generate(256, (i) => i);
     int j = 0;
-
     for (int i = 0; i < 256; i++) {
       j = (j + s[i] + key[i % key.length]) % 256;
       int temp = s[i];
       s[i] = s[j];
       s[j] = temp;
     }
-
     int i = 0;
     j = 0;
     List<int> out = [];
@@ -376,7 +380,6 @@ class AnikotoExtensionService {
       s[j] = temp;
       out.add(data[k] ^ s[(s[i] + s[j]) % 256]);
     }
-
     return base64Url.encode(out).replaceAll('=', '');
   }
 }

@@ -1,17 +1,15 @@
 import 'package:hive_ce_flutter/hive_flutter.dart';
-import 'hive_boxes.dart';
 
 class HiveService {
-  HiveService._();
-
   static Future<void> initialize() async {
     await Hive.initFlutter();
 
-    await Hive.openBox<String>(HiveBoxes.searchHistory);
-    await Hive.openBox<int>(HiveBoxes.favorites);
-    await Hive.openBox(HiveBoxes.continueWatching);
-    await Hive.openBox(HiveBoxes.settings);
-    await Hive.openBox(HiveBoxes.downloads);
-    await Hive.openBox(HiveBoxes.user);
+    // Box for storing JSON strings of watch history
+    await Hive.openBox<String>('watch_history');
+
+    // We can open the search history box now too while we're here
+    await Hive.openBox<String>('search_history');
+
+    await Hive.openBox<String>('anime_library');
   }
 }

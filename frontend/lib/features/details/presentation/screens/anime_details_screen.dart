@@ -1,4 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:frontend/features/library/presentation/widgets/library_status_sheet.dart';
+import 'package:frontend/features/library/services/library_service.dart';
+import 'package:palette_generator/palette_generator.dart';
 import '../../../../core/colors/app_colors.dart';
 import '../../../../shared/models/anime.dart';
 import '../widgets/info_tab.dart';
@@ -13,172 +17,281 @@ class AnimeDetailsScreen extends StatefulWidget {
   State<AnimeDetailsScreen> createState() => _AnimeDetailsScreenState();
 }
 
-class _AnimeDetailsScreenState extends State<AnimeDetailsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _AnimeDetailsScreenState extends State<AnimeDetailsScreen> {
+  final LibraryService _libraryService = LibraryService();
+  String? _libraryStatus;
+  
+  // 0 = Info, 1 = Watch, 2 = Comments (if you add them later)
+  int _currentIndex = 0; 
+
+Color _dominantColor = Colors.black;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _libraryStatus = _libraryService.getAnimeStatus(widget.anime.id.toString());
+    _extractDominantColor();
+  }
+  // NEW: Extract color from the banner
+  Future<void> _extractDominantColor() async {
+    final bannerUrl = widget.anime.bannerImage ?? widget.anime.coverImage ?? '';
+    if (bannerUrl.isEmpty) return;
+
+    try {
+      final palette = await PaletteGenerator.fromImageProvider(NetworkImage(bannerUrl));
+      if (mounted && palette.dominantColor != null) {
+        setState(() {
+          _dominantColor = palette.dominantColor!.color;
+        });
+      }
+    } catch (e) {
+      debugPrint("Failed to extract color: $e");
+    }
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  void _showLibrarySheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => LibraryStatusSheet(
+        anime: widget.anime,
+        initialStatus: _libraryStatus,
+        onStatusUpdated: (newStatus) {
+          if (!mounted) return;
+          setState(() {
+            _libraryStatus = newStatus;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(newStatus == null ? "Removed from Library" : "Moved to $newStatus"),
+              backgroundColor: AppColors.card,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final anime = widget.anime;
-    final bannerUrl = anime.bannerImage ?? anime.coverImage ?? '';
+    final bannerUrl = widget.anime.bannerImage ?? widget.anime.coverImage ?? '';
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) {
-          return [
-            SliverAppBar(
-              expandedHeight: 300,
-              pinned: true,
-              backgroundColor: AppColors.background,
-              leading: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back_rounded,
-                  color: AppColors.textPrimary,
-                ),
-                onPressed: () => Navigator.pop(context),
+      body: Stack(
+        children: [
+          // ==========================================
+          // 1. BLURRED BACKGROUND IMAGE
+          // ==========================================
+          Positioned.fill(
+            child: Image.network(
+              bannerUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(color: AppColors.background),
+            ),
+          ),
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 30.0, sigmaY: 30.0),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 500), // Smooth fade in
+                // Tint the glass with the anime's extracted color, darkened so text is readable
+                color: _dominantColor.withValues(alpha: 0.75), 
               ),
-              flexibleSpace: FlexibleSpaceBar(
-                background: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.network(
-                      bannerUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: AppColors.card,
-                        child: const Icon(
-                          Icons.broken_image_rounded,
-                          color: AppColors.textSecondary,
-                          size: 48,
+            ),
+          ),
+
+          // ==========================================
+          // 2. SCROLLABLE MAIN CONTENT
+          // ==========================================
+          Positioned.fill(
+            child: ListView(
+              padding: EdgeInsets.only(
+                top: MediaQuery.paddingOf(context).top + 60, 
+                bottom: 120, // Space for the floating nav
+              ),
+              physics: const BouncingScrollPhysics(),
+              children: [
+                // --- POSTER AND TITLE HEADER ---
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      // Mini Poster
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          widget.anime.coverImage ?? bannerUrl,
+                          width: 120,
+                          height: 170,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            width: 120, height: 170, color: AppColors.card,
+                          ),
                         ),
                       ),
-                    ),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.black.withValues(alpha: 0.3),
-                            AppColors.background.withValues(alpha: 0.8),
-                            AppColors.background,
-                          ],
-                          stops: const [0.0, 0.7, 1.0],
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 16,
-                      left: 16,
-                      right: 16,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            anime.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
+                      const SizedBox(width: 16),
+                      // Title & Status
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              widget.anime.title,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                height: 1.2,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              if (anime.rating != null) ...[
-                                const Icon(
-                                  Icons.star_rounded,
-                                  color: Colors.amber,
-                                  size: 18,
+                            const SizedBox(height: 8),
+                            if (widget.anime.status != null)
+                              Text(
+                                widget.anime.status!.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.blueAccent, // Matches the AnymeX blue
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.0,
                                 ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  anime.rating!.toStringAsFixed(1),
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                              ],
-                              if (anime.status != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.2,
-                                    ),
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: AppColors.primary.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    anime.status!,
-                                    style: const TextStyle(
-                                      color: AppColors.primary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ],
+                              ),
+                            const SizedBox(height: 4),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              bottom: PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: Container(
-                  color: AppColors.background,
-                  child: TabBar(
-                    controller: _tabController,
-                    indicatorColor: AppColors.primary,
-                    labelColor: AppColors.primary,
-                    unselectedLabelColor: AppColors.textSecondary,
-                    indicatorWeight: 3,
-                    tabs: const [
-                      Tab(text: "INFO"),
-                      Tab(text: "WATCH"),
                     ],
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+
+                // --- DYNAMIC TAB CONTENT ---
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: _currentIndex == 0
+                      ? InfoTab(
+                          anime: widget.anime,
+                          libraryStatus: _libraryStatus,
+                          onLibraryTap: _showLibrarySheet,
+                        )
+                      : WatchTab(anime: widget.anime),
+                ),
+              ],
+            ),
+          ),
+
+          // ==========================================
+          // 3. TOP NAVIGATION BUTTONS (HOME & CLOSE)
+          // ==========================================
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 10,
+            left: 16,
+            right: 16,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildCircularButton(
+                  icon: Icons.home_rounded,
+                  onTap: () => Navigator.popUntil(context, (route) => route.isFirst),
+                ),
+                _buildCircularButton(
+                  icon: Icons.close_rounded,
+                  onTap: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+
+          // ==========================================
+          // 4. FLOATING PILL NAVIGATION
+          // ==========================================
+          Positioned(
+            bottom: 30,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(30),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+                  child: Container(
+                    height: 64,
+                    width: 200, // 🛑 Shrunk from 280 since we only have two buttons now
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _buildPillNavItem(0, Icons.info_outline_rounded, "Info"),
+                        _buildPillNavItem(1, Icons.play_arrow_rounded, "Watch"),
+                        // 🛑 Comments button brutally murdered as requested
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ];
-        },
-        body: TabBarView(
-          controller: _tabController,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Helper for Top Buttons
+  Widget _buildCircularButton({required IconData icon, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.5),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 22),
+      ),
+    );
+  }
+
+  // Helper for Floating Nav Items
+  Widget _buildPillNavItem(int index, IconData icon, String label) {
+    final isSelected = _currentIndex == index;
+    return GestureDetector(
+      onTap: () => setState(() => _currentIndex = index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white.withValues(alpha: 0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SingleChildScrollView(
-              padding: const EdgeInsets.only(top: 16, bottom: 32),
-              child: InfoTab(anime: anime),
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : AppColors.textSecondary,
+              size: 20,
             ),
-            WatchTab(anime: anime),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? Colors.white : AppColors.textSecondary,
+              ),
+            ),
           ],
         ),
       ),

@@ -59,21 +59,29 @@ class DynamicExtensionService {
       jsRuntime = getJavascriptRuntime();
       jsRuntime.evaluate(jsCode);
 
-      // 4. Base64 encode the raw HTML to safely cross the Dart-JS boundary
-      final base64Html = base64Encode(utf8.encode(rawHtml));
+      // 🛑 THE FIX: Use jsonEncode to safely escape the HTML into a JS string
+      final safeHtml = jsonEncode(rawHtml);
+      final jsCommand = "extractVidPlayUrl($safeHtml, '$cipherText');";
 
-      // 5. Construct execution command
-      final jsCommand =
-          '''
-        const decodedHtml = decodeURIComponent(escape(atob('$base64Html')));
-        extractVidPlayUrl(decodedHtml, '$cipherText');
-      ''';
-
-      debugPrint('⚙️ [DynamicEngine] Executing extraction in JS Engine...');
-
-      // 6. Run script and parse result
       final jsResult = jsRuntime.evaluate(jsCommand);
-      final Map<String, dynamic> resultData = jsonDecode(jsResult.stringResult);
+
+      // 🛑 SAFTEY CHECK: Don't try to JSON decode a JS error message!
+      if (jsResult.isError) {
+        debugPrint(
+          '🚨 [DynamicEngine] JS Eval Error: ${jsResult.stringResult}',
+        );
+        return null;
+      }
+
+      Map<String, dynamic> resultData;
+      try {
+        resultData = jsonDecode(jsResult.stringResult);
+      } catch (e) {
+        debugPrint(
+          '🚨 [DynamicEngine] JSON Decode Error: $e \nResult was: ${jsResult.stringResult}',
+        );
+        return null;
+      }
 
       if (resultData['success'] == true) {
         debugPrint(
