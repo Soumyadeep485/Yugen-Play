@@ -43,18 +43,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _checkForUpdates() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      
+      // 1. Sanitize the app's current version just in case
+      final currentVersion = packageInfo.version.replaceAll(RegExp(r'[^0-9.]'), '');
 
       final dio = Dio();
-      
-      // 🛑 STOP AND CHANGE THIS URL TO YOUR ACTUAL GITHUB REPO 🛑
       final response = await dio.get('https://api.github.com/repos/Soumyadeep485/Yugen-Play/releases/latest');
 
       if (response.statusCode == 200) {
         final data = response.data;
         
-        // Strip out the 'v' (e.g., 'v1.0.1' becomes '1.0.1')
-        final String latestVersion = data['tag_name'].toString().replaceAll('v', '');
+        // 2. BULLETPROOF PARSING: Strips all letters, dashes, and spaces.
+        // Transforms "v1.2.0-beta" or "Release 1.2.0" into a cleanly parsed "1.2.0"
+        final String latestVersion = data['tag_name'].toString().replaceAll(RegExp(r'[^0-9.]'), '');
         final String releaseNotes = data['body'] ?? "Minor bug fixes and performance improvements.";
         
         String? downloadUrl;
@@ -69,14 +70,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           }
         }
 
-        // If we found a newer version and an APK link, trigger the glassy popup!
+        // 3. Compare the sanitized versions
         if (downloadUrl != null && _isNewerVersion(currentVersion, latestVersion)) {
           if (!mounted) return;
           showDialog(
             context: context,
-            barrierDismissible: false, // Forces user to click Later or Update
+            barrierDismissible: false, 
             builder: (context) => GlassyUpdateDialog(
-              version: data['tag_name'],
+              version: latestVersion, // Shows the clean version number in the UI
               releaseNotes: releaseNotes,
               downloadUrl: downloadUrl!,
             ),
