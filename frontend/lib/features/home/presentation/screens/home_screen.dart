@@ -1,11 +1,13 @@
 import 'dart:ui';
-
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:frontend/core/storage/hive_boxes.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import '../../../../core/colors/app_colors.dart';
-import '../../../../shared/models/anime.dart';
+import '../widgets/glassy_update_dialog.dart';
 import '../../../details/presentation/screens/anime_details_screen.dart';
 import '../../../history/services/watch_history_service.dart';
 import '../../../search/controllers/search_provider.dart';
@@ -14,6 +16,12 @@ import '../../controllers/home_provider.dart';
 import '../widgets/anime_section.dart';
 import '../widgets/hero_banner.dart';
 import '../widgets/home_app_bar.dart';
+import '../../../../service_locator.dart';
+import '../../../player/controllers/player_controller.dart';
+import '../../../player/models/episode.dart';
+import '../../../player/models/stream_link.dart';
+import '../../../player/presentation/screens/glassy_player_screen.dart';
+import '../../../player/presentation/widgets/stream_quality_bottom_sheet.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +32,75 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _ambientImageUrl;
+
+@override
+  void initState() {
+    super.initState();
+    // Fire the update check immediately when the screen loads
+    _checkForUpdates(); 
+  }
+  // Method 1: The API Fetcher
+  Future<void> _checkForUpdates() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final currentVersion = packageInfo.version;
+
+      final dio = Dio();
+      
+      // 🛑 STOP AND CHANGE THIS URL TO YOUR ACTUAL GITHUB REPO 🛑
+      final response = await dio.get('https://api.github.com/repos/Soumyadeep485/Yugen-Play/releases/latest');
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        
+        // Strip out the 'v' (e.g., 'v1.0.1' becomes '1.0.1')
+        final String latestVersion = data['tag_name'].toString().replaceAll('v', '');
+        final String releaseNotes = data['body'] ?? "Minor bug fixes and performance improvements.";
+        
+        String? downloadUrl;
+        if (data['assets'] != null && (data['assets'] as List).isNotEmpty) {
+          final assets = data['assets'] as List;
+          final apkAsset = assets.firstWhere(
+            (asset) => asset['name'].toString().endsWith('.apk'), 
+            orElse: () => null,
+          );
+          if (apkAsset != null) {
+            downloadUrl = apkAsset['browser_download_url'];
+          }
+        }
+
+        // If we found a newer version and an APK link, trigger the glassy popup!
+        if (downloadUrl != null && _isNewerVersion(currentVersion, latestVersion)) {
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            barrierDismissible: false, // Forces user to click Later or Update
+            builder: (context) => GlassyUpdateDialog(
+              version: data['tag_name'],
+              releaseNotes: releaseNotes,
+              downloadUrl: downloadUrl!,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Update check failed: $e");
+    }
+  }
+
+  // Method 2: The Version Comparator (Checks if 1.0.1 is bigger than 1.0.0)
+  bool _isNewerVersion(String current, String latest) {
+    final currParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final latestParts = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    for (int i = 0; i < 3; i++) {
+      final c = currParts.length > i ? currParts[i] : 0;
+      final l = latestParts.length > i ? latestParts[i] : 0;
+      if (l > c) return true;
+      if (l < c) return false;
+    }
+    return false; 
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -265,10 +342,278 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
     await _historyService.clearAllHistory();
   }
 
+  Future<void> _resumeEpisode(BuildContext context, Map<String, dynamic> item) async {
+    final playerController = locator<PlayerController>();
+
+    // Safely extract all required database fields
+    final animeId = item['animeId'].toString();
+    final title = item['animeTitle']?.toString() ?? 'Unknown';
+    final epNum = item['episodeNumber'] as int? ?? 1;
+    final poster = item['posterUrl']?.toString() ?? '';
+    final episodeId = item['episodeId']?.toString() ?? '$title-ep-$epNum';
+    final savedPosition = Duration(milliseconds: int.tryParse(item['positionMs'].toString()) ?? 0);
+    // 👇 1. Kill switch
+    bool isCancelled = false;
+
+    // 1. Show the Glassy "Preparing Stream" Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF14141B),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text(
+                    "Preparing stream",
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              SizedBox(height: 24),
+              Text(
+                "Fetching fresh stream URLs from source...",
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => isCancelled = true); // 👇 2. Catch swipe-backs
+
+    // 2. Fetch Streams in the background
+    await playerController.fetchStreamsForEpisode(
+      episode: Episode(
+        id: episodeId,
+        number: epNum,
+        title: 'Episode $epNum',
+        providerId: 'anikoto', 
+        anilistId: int.tryParse(animeId) ?? 0,
+      ),
+      animeId: animeId,
+      animeTitle: title,
+      posterUrl: poster,
+      totalEpisodes: null,
+    );
+
+    if (!context.mounted) return;
+    // 👇 3. Abort if swiped back
+    if (isCancelled) return;
+    Navigator.pop(context); // Close the loading dialog
+
+    if (playerController.streamLinks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(playerController.errorMessage ?? "No active streams found."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    // 3. Show Quality Selector and Launch
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => StreamQualityBottomSheet(
+        streamLinks: playerController.streamLinks,
+        selectedStream: playerController.selectedStream,
+        onStreamSelected: (StreamLink stream) {
+          playerController.selectStream(stream);
+
+          Future.delayed(const Duration(milliseconds: 250), () {
+            if (!context.mounted) return;
+
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(
+                builder: (_) => GlassyPlayerScreen(
+                  title: '$title - Episode $epNum',
+                  quality: stream.quality,
+                  streamUrl: stream.url,
+                  playerController: playerController,
+                  animeId: animeId,
+                  episodeId: episodeId,
+                  episodeNumber: epNum,
+                  posterUrl: poster,
+                  startPosition: savedPosition,
+
+                  // 👇 1. Pass the exact state when the user hits Next!
+                  onNextEpisode: () {
+                    final currentStream = playerController.selectedStream;
+                    return _handleAutoPlayNext(
+                      context,
+                      animeId,
+                      title,
+                      poster,
+                      epNum + 1,
+                      currentStream?.quality ?? '',
+                      currentStream?.sourceName ?? '',
+                    );
+                  },
+                ),
+              ),
+            );
+          });
+        },
+      ),
+    );
+  }
+  Future<bool> _handleAutoPlayNext(
+    BuildContext context, 
+    String animeId, 
+    String animeTitle, 
+    String posterUrl, 
+    int nextEpNum,
+    String previousQuality, // 👈 New Parameter
+    String previousSource,  // 👈 New Parameter
+  ) async {
+    final playerController = locator<PlayerController>();
+
+    // We already know exactly what they were watching because we passed it in!
+    final prevWasDub = previousQuality.toLowerCase().contains('dub');
+
+    bool isCancelled = false;
+
+    // 1. Show Loading Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF14141B),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(color: Color(0xFF7C3AED), strokeWidth: 2),
+              ),
+              SizedBox(width: 16),
+              Text(
+                "Loading next episode...",
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => isCancelled = true);
+
+    // 2. FETCH for the next episode
+    final nextEpisodeId = '$animeTitle-ep-$nextEpNum';
+    await playerController.fetchStreamsForEpisode(
+      episode: Episode(
+        id: nextEpisodeId,
+        number: nextEpNum,
+        title: 'Episode $nextEpNum',
+        providerId: 'anikoto', 
+        anilistId: int.tryParse(animeId) ?? 0,
+      ),
+      animeId: animeId,
+      animeTitle: animeTitle,
+      posterUrl: posterUrl,
+      totalEpisodes: null, // Continue Watching doesn't strictly need totalEpisodes here
+    );
+
+    if (!context.mounted) return false;
+    if (isCancelled) return false; 
+    
+    Navigator.pop(context); // Close dialog
+
+    if (playerController.streamLinks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No more episodes available."), backgroundColor: Colors.redAccent),
+      );
+      return false;
+    }
+
+    // 3. The Stream Picker (Simplified & Bulletproof)
+    StreamLink? selectedStream;
+
+    if (previousQuality.isNotEmpty) {
+      // Step A: Filter to strictly Sub or strictly Dub
+      List<StreamLink> candidateStreams = playerController.streamLinks.where((link) {
+        final isDub = link.quality.toLowerCase().contains('dub');
+        return prevWasDub ? isDub : !isDub;
+      }).toList();
+
+      if (candidateStreams.isEmpty) {
+        candidateStreams = playerController.streamLinks; 
+      }
+
+      // Step B: Lock onto the EXACT server name
+      try {
+        selectedStream = candidateStreams.firstWhere(
+          (link) => link.sourceName.toLowerCase().trim() == previousSource.toLowerCase().trim()
+        );
+      } catch (_) {
+        selectedStream = candidateStreams.first;
+      }
+    }
+
+    selectedStream ??= playerController.streamLinks.first;
+    playerController.selectStream(selectedStream);
+
+    // 4. Launch the player
+    Navigator.of(context, rootNavigator: true).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => GlassyPlayerScreen(
+          title: '$animeTitle - Episode $nextEpNum',
+          quality: selectedStream!.quality,
+          streamUrl: selectedStream.url,
+          playerController: playerController,
+          animeId: animeId,
+          episodeId: nextEpisodeId,
+          episodeNumber: nextEpNum,
+          posterUrl: posterUrl,
+          startPosition: null,
+          // 5. Pass the exact state AGAIN for the next episode in the chain
+          onNextEpisode: () {
+            final currentStream = playerController.selectedStream;
+            return _handleAutoPlayNext(
+              context, 
+              animeId, 
+              animeTitle, 
+              posterUrl, 
+              nextEpNum + 1,
+              currentStream?.quality ?? '',
+              currentStream?.sourceName ?? '',
+            );
+          },
+        ),
+      ),
+    );
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder(
-      valueListenable: Hive.box<String>('watch_history').listenable(),
+      valueListenable: Hive.box<String>(HiveBoxes.continueWatching).listenable(),
       builder: (context, box, child) {
         final historyItems = _historyService.getAllHistory();
 
@@ -323,21 +668,7 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
                   final double progress = (pos / dur).clamp(0.0, 1.0);
 
                   return GestureDetector(
-                    onTap: () {
-                      final reconstructedAnime = Anime(
-                        id: animeId,
-                        title: title,
-                        coverImage: poster,
-                        bannerImage: poster, 
-                      );
-
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => AnimeDetailsScreen(anime: reconstructedAnime),
-                        ),
-                      );
-                    },
+                    onTap: () => _resumeEpisode(context, item),
                     child: Container(
                       width: 240,
                       margin: const EdgeInsets.symmetric(horizontal: 4.0),

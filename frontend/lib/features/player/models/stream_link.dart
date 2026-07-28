@@ -24,6 +24,7 @@ class StreamLink {
   final List<AudioTrack> audioTracks;
   final bool isHls;
   final bool isDefault;
+  
 
   StreamLink copyWith({
     String? url,

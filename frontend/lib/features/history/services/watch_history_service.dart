@@ -1,9 +1,10 @@
 import 'dart:convert';
 
+import 'package:frontend/core/storage/hive_boxes.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 class WatchHistoryService {
-  final Box<String> _historyBox = Hive.box<String>('watch_history');
+  final Box<String> _historyBox = Hive.box<String>(HiveBoxes.continueWatching);
 
   /// Saves the user's progress. Uses animeId as the key so it overwrites
   /// previous episodes of the same anime (keeping only the most recent).

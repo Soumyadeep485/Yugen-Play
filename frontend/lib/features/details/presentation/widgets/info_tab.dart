@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:frontend/core/storage/hive_boxes.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import '../../../../core/colors/app_colors.dart';
@@ -75,7 +76,7 @@ class InfoTab extends StatelessWidget {
           // 2. WATCH TRACKING CARD (Reactive)
           // ==========================================
           ValueListenableBuilder(
-            valueListenable: Hive.box<String>('watch_history').listenable(),
+            valueListenable: Hive.box<String>(HiveBoxes.continueWatching).listenable(),
             builder: (context, box, child) {
               final rawHistory = box.get(anime.id.toString());
               

@@ -24,7 +24,7 @@ dependencies:
   # WebView (Cloudflare bypass)
   flutter_inappwebview: ^6.0.0
 
-  dio: ^5.4.3
+  dio: ^5.11.0
   path_provider: ^2.1.6
   get_it: ^9.2.1
   xml: ^6.6.1
@@ -45,6 +45,8 @@ dependencies:
 
   # Go Torrent Streamer
   flutter_go_torrent_streamer: ^0.0.8
+  package_info_plus: ^10.2.1
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:

@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' as mk;
 import '../../../../core/colors/app_colors.dart';
@@ -41,7 +40,7 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
 
     // Filter out internal MPV ghost tracks like "Track 0"
     final validTracks = allTracks.where((track) {
-      final title = (track.title ?? track.id ?? '').toLowerCase();
+      final title = (track.title ?? track.id).toLowerCase();
       if (title.contains('track 0') || title == '0' || title == 'auto') {
         return false;
       }
@@ -50,15 +49,13 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFF121218).withValues(alpha: 0.85),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: Colors.white10),
-          ),
+  color: const Color(0xFF14141B).withValues(alpha: 0.85), // Glassy, semi-transparent
+  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+  border: Border.all(color: Colors.white10),
+),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,7 +220,6 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
             ],
           ),
         ),
-      ),
     );
   }
 

@@ -28,7 +28,7 @@ class _WatchTabState extends State<WatchTab> {
   final String _selectedSource = 'Yugen Play (HLS)';
   Future<List<EpisodeMetadata>>? _episodesFuture;
 
-  // 🛑 Chunking State Variables
+  //  Chunking State Variables
   int _selectedChunkIndex = 0;
   final int _chunkSize = 24;
 
@@ -150,19 +150,51 @@ class _WatchTabState extends State<WatchTab> {
   Future<void> _openEpisodeStreams(
     BuildContext context,
     EpisodeMetadata metadata,
+    int totalEpisodes,
   ) async {
     final playerController = locator<PlayerController>();
+    bool isCancelled = false;
 
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => StreamQualityBottomSheet(
-        streamLinks: const [],
-        selectedStream: null,
-        onStreamSelected: (_) {},
-        isLoading: true,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF14141B),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text(
+                    "Preparing stream",
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              SizedBox(height: 24),
+              Text(
+                "Fetching fresh stream URLs from source...",
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
       ),
-    );
+    ).then((_) => isCancelled = true); // 👇 2. Catch manual swipe-backs!
 
     final safeAnilistId = int.tryParse(widget.anime.id) ?? 0;
 
@@ -181,6 +213,13 @@ class _WatchTabState extends State<WatchTab> {
     );
 
     if (!context.mounted) return;
+
+    // 👇 3. If they swiped back, stop everything and don't pop again!
+    if (isCancelled) {
+      debugPrint("User aborted stream fetch.");
+      return; 
+    }
+
     Navigator.pop(context);
 
     if (playerController.streamLinks.isEmpty) {
@@ -211,6 +250,10 @@ class _WatchTabState extends State<WatchTab> {
           Future.delayed(const Duration(milliseconds: 250), () {
             if (!context.mounted) return;
 
+            final String currentEpisodeId = '${widget.anime.title}-ep-${metadata.number}';
+
+            // REMOVE the WatchHistoryService().getHistory(...) logic entirely!
+
             Navigator.of(context, rootNavigator: true).push(
               MaterialPageRoute(
                 builder: (_) => GlassyPlayerScreen(
@@ -218,7 +261,26 @@ class _WatchTabState extends State<WatchTab> {
                   quality: stream.quality,
                   streamUrl: stream.url,
                   playerController: playerController,
-                ),
+                  animeId: widget.anime.id.toString(),
+                  episodeId: currentEpisodeId,
+                  episodeNumber: metadata.number,
+                  posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+                  
+                  // 1. Pass the state exactly as it is when the button is pressed!
+                  onNextEpisode: metadata.number >= totalEpisodes 
+                      ? null 
+                      : () {
+                          final currentStream = playerController.selectedStream;
+                          return _handleAutoPlayNext(
+                            context, 
+                            metadata.number + 1, 
+                            'Episode ${metadata.number + 1}', 
+                            totalEpisodes,
+                            currentStream?.quality ?? '',      // 👈 Capturing Quality
+                            currentStream?.sourceName ?? '',   // 👈 Capturing Server
+                          );
+                        },
+                  ),
               ),
             );
           });
@@ -416,7 +478,7 @@ class _WatchTabState extends State<WatchTab> {
                         title: meta.title,
                         description: meta.description,
                         thumbnailUrl: meta.thumbnail,
-                        onTap: () => _openEpisodeStreams(context, meta),
+                        onTap: () => _openEpisodeStreams(context, meta, episodes.length),
                       );
                     },
                   ),
@@ -427,5 +489,142 @@ class _WatchTabState extends State<WatchTab> {
         ],
       ),
     );
+  }
+  Future<bool> _handleAutoPlayNext(
+    BuildContext context, 
+    int nextEpNum, 
+    String nextEpTitle, 
+    int totalEpisodes,
+    String previousQuality, // 👈 New Parameter
+    String previousSource,  // 👈 New Parameter
+  ) async {
+    final playerController = locator<PlayerController>();
+    
+    // We already know exactly what they were watching because we passed it in!
+    final prevWasDub = previousQuality.toLowerCase().contains('dub');
+
+    bool isCancelled = false;
+
+    // 1. Show the Loading Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF14141B),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
+              ),
+              SizedBox(width: 16),
+              Text(
+                "Loading next episode...",
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) => isCancelled = true);
+
+    // 2. Fetch Streams silently for the NEXT episode
+    final nextEpisodeId = '${widget.anime.title}-ep-$nextEpNum';
+    await playerController.fetchStreamsForEpisode(
+      episode: Episode(
+        id: nextEpisodeId,
+        number: nextEpNum,
+        title: nextEpTitle,
+        providerId: 'anikoto', 
+        anilistId: int.tryParse(widget.anime.id) ?? 0,
+      ),
+      animeId: widget.anime.id.toString(),
+      animeTitle: widget.anime.title,
+      posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+      totalEpisodes: widget.anime.episodes,
+    );
+
+    if (!context.mounted) return false;
+    if (isCancelled) return false;
+    
+    Navigator.pop(context); // Close dialog
+
+    if (playerController.streamLinks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to find streams for Episode $nextEpNum."), backgroundColor: Colors.redAccent),
+      );
+      return false;
+    }
+
+    // 3. The Stream Picker (Simplified & Bulletproof)
+    StreamLink? selectedStream;
+
+    if (previousQuality.isNotEmpty) {
+      // Step A: Filter to strictly Sub or strictly Dub
+      List<StreamLink> candidateStreams = playerController.streamLinks.where((link) {
+        final isDub = link.quality.toLowerCase().contains('dub'); 
+        return prevWasDub ? isDub : !isDub; 
+      }).toList();
+
+      if (candidateStreams.isEmpty) {
+        candidateStreams = playerController.streamLinks;
+      }
+
+      // Step B: Lock onto the EXACT server name (e.g. "VidPlay-1")
+      try {
+        selectedStream = candidateStreams.firstWhere(
+          (link) => link.sourceName.toLowerCase().trim() == previousSource.toLowerCase().trim()
+        );
+      } catch (_) {
+        // If that specific server is down, grab the first available in the correct Sub/Dub category
+        selectedStream = candidateStreams.first;
+      }
+    }
+
+    selectedStream ??= playerController.streamLinks.first;
+    
+    // 🛑 ONLY FIRED ONCE. NO RACE CONDITIONS. 🛑
+    playerController.selectStream(selectedStream);
+
+    // 4. Swap the player screen
+    Navigator.of(context, rootNavigator: true).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => GlassyPlayerScreen(
+          title: '${widget.anime.title} - $nextEpTitle',
+          quality: selectedStream!.quality,
+          streamUrl: selectedStream.url,
+          playerController: playerController,
+          animeId: widget.anime.id.toString(),
+          episodeId: nextEpisodeId,
+          episodeNumber: nextEpNum,
+          posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+          startPosition: null, 
+          // 5. Pass the exact state AGAIN for the next episode in the chain
+          onNextEpisode: nextEpNum >= totalEpisodes 
+              ? null 
+              : () {
+                  final currentStream = playerController.selectedStream;
+                  return _handleAutoPlayNext(
+                    context, 
+                    nextEpNum + 1, 
+                    'Episode ${nextEpNum + 1}', 
+                    totalEpisodes,
+                    currentStream?.quality ?? '',
+                    currentStream?.sourceName ?? '',
+                  );
+                },
+        ),
+      ),
+    );
+    return true;
   }
 }

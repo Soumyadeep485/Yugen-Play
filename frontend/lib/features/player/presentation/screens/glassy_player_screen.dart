@@ -10,22 +10,36 @@ import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../widgets/glassy_top_bar.dart';
+import '../widgets/glassy_center_controls.dart';
+import '../widgets/glassy_bottom_bar.dart';
+import '../widgets/glassy_gesture_overlay.dart';
+import '../widgets/glassy_playlist_sheet.dart';
+import '../widgets/glassy_settings_sheet.dart';
+import '../widgets/glassy_more_options_sheet.dart';
 import '../../../../core/colors/app_colors.dart';
 import '../../../../src/rust/api/torrent.dart';
 import '../../controllers/player_controller.dart';
-import '../../models/stream_link.dart';
-import '../../models/subtitle_track.dart';
 import '../widgets/stream_quality_bottom_sheet.dart';
 import '../widgets/subtitle_selector_sheet.dart';
+import '../../../history/services/watch_history_service.dart'; 
+
 
 class GlassyPlayerScreen extends StatefulWidget {
   final String title;
   final String quality;
   final String streamUrl;
   final PlayerController playerController;
-  
-  // 🛑 LOGIC CALLBACKS ADDED HERE
-  final VoidCallback? onNextEpisode;
+
+  // 👇 NEW REQUIRED FIELDS FOR HISTORY 👇
+  final String animeId;
+  final String episodeId;
+  final int episodeNumber;
+  final String posterUrl;
+  final Duration? startPosition; // Where to resume from
+
+  // LOGIC CALLBACKS ADDED HERE
+  final Future<bool> Function()? onNextEpisode;
   final VoidCallback? onPreviousEpisode;
 
   const GlassyPlayerScreen({
@@ -34,6 +48,11 @@ class GlassyPlayerScreen extends StatefulWidget {
     required this.quality,
     required this.streamUrl,
     required this.playerController,
+    required this.animeId,
+    required this.episodeId,
+    required this.episodeNumber,
+    required this.posterUrl,
+    this.startPosition,
     this.onNextEpisode,
     this.onPreviousEpisode,
   });
@@ -49,6 +68,12 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
   final List<StreamSubscription> _subscriptions = [];
   TorrentEngine? _rustEngine;
   Timer? _controlsTimer;
+
+  Timer? _saveTimer;
+  final WatchHistoryService _historyService = WatchHistoryService();
+
+  StreamSubscription? _completedSub;
+  bool _isTransitioningToNext = false;
 
   bool _isBuffering = true;
   bool _isPlaying = false;
@@ -82,6 +107,39 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
     _setupPlayerListeners();
 
+    // 👇 BULLETPROOF RESUME LOGIC (V3 - DECODER SAFE) 👇
+    if (widget.startPosition != null && widget.startPosition! > const Duration(seconds: 5)) {
+      
+      // Helper function to safely execute the seek with a micro-delay
+      void triggerSafeSeek() {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            try {
+              _player.seek(widget.startPosition!);
+              debugPrint("Successfully resumed at: ${widget.startPosition}");
+            } catch (e) {
+              debugPrint("Seek failed: $e");
+            }
+          }
+        });
+      }
+
+      // Scenario A: The video loaded instantly and already knows its duration.
+      if (_player.state.duration.inMilliseconds > 0) {
+        triggerSafeSeek();
+      } 
+      // Scenario B: Wait for the engine to announce its duration, then seek.
+      else {
+        StreamSubscription? resumeSub;
+        resumeSub = _player.stream.duration.listen((duration) {
+          if (duration.inMilliseconds > 0) {
+            triggerSafeSeek();
+            resumeSub?.cancel(); // Kill the listener
+          }
+        });
+      }
+    }
+
     if (widget.streamUrl.startsWith('magnet:')) {
       _setupTorrentStream(widget.streamUrl);
     } else {
@@ -97,6 +155,47 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
     }
 
     _resetControlsTimer();
+
+    // 👇 AUTO-PLAY NEXT EPISODE LISTENER 👇
+    _completedSub = _player.stream.completed.listen((completed) async {
+      if (completed && mounted && widget.onNextEpisode != null) {
+        if (!_isTransitioningToNext) {
+          setState(() => _isTransitioningToNext = true);
+          debugPrint("Video finished. Auto-playing next episode...");
+
+          final success = await widget.onNextEpisode!();
+
+// 👇 If the fetch fails and we are still on this screen, unlock the flag!
+          if (mounted && !success) {
+            setState(() => _isTransitioningToNext = false);
+          }
+        }
+      }
+    });
+    
+    // 👇 START THE BACKGROUND SAVER 👇
+    _startHistorySaver();
+  }
+
+  void _startHistorySaver() {
+    _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      // 1. Ask the player engine DIRECTLY for its current stats, bypassing stale UI variables
+      final livePosition = _player.state.position;
+      final liveDuration = _player.state.duration;
+
+      // 2. Only save if it is actually playing and we have a valid time
+      if (mounted && _player.state.playing && livePosition.inMilliseconds > 0 && liveDuration.inMilliseconds > 0) {
+        _historyService.saveHistory(
+          animeId: widget.animeId,
+          animeTitle: widget.title.split('-').first.trim(),
+          episodeId: widget.episodeId,
+          episodeNumber: widget.episodeNumber,
+          posterUrl: widget.posterUrl,
+          positionMs: livePosition.inMilliseconds,
+          durationMs: liveDuration.inMilliseconds,
+        );
+      }
+    });
   }
 
   Future<void> _injectSubtitle() async {
@@ -297,34 +396,12 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       _showToast("Speed: ${_playbackSpeed}x");
     });
   }
-
   void _showPlaylistSheet() {
     _resetControlsTimer();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF14141B),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Episodes Playlist", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.play_circle_fill_rounded, color: AppColors.primary),
-              title: Text(widget.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: const Text("Currently Playing", style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => GlassyPlaylistSheet(title: widget.title),
     );
   }
 
@@ -333,117 +410,45 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF14141B),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("Player Settings", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white54),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 24.0),
-                child: Text("Additional player settings will appear here.", style: TextStyle(color: Colors.white38, fontSize: 13)),
-              ),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => const GlassySettingsSheet(),
     );
   }
 
-  // Restored missing method
   void _showMoreOptionsSheet() {
     _resetControlsTimer();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF14141B),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("More Options", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close_rounded, color: Colors.white54),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.picture_in_picture_alt_rounded, color: Colors.white),
-              title: const Text("Picture in Picture", style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _showToast("PIP coming soon!");
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.report_problem_rounded, color: Colors.white),
-              title: const Text("Report Issue", style: TextStyle(color: Colors.white)),
-              onTap: () {
-                Navigator.pop(context);
-                _showToast("Report sent.");
-              },
-            )
-          ],
-        ),
-      ),
+      builder: (_) => GlassyMoreOptionsSheet(onToastMessage: _showToast),
     );
   }
 
   @override
   void dispose() {
+    _saveTimer?.cancel();
     _controlsTimer?.cancel();
     _toastTimer?.cancel();
+    _completedSub?.cancel();
     for (final s in _subscriptions) {
       s.cancel();
     }
     _player.stop();
     _rustEngine?.dispose();
 
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    if (!_isTransitioningToNext) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+
+      //SystemUiMode reset
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     super.dispose();
   }
 
-  String _formatDuration(Duration d) {
-    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return "${d.inHours > 0 ? '${d.inHours}:' : ''}$minutes:$seconds";
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final double maxDuration = _duration.inMilliseconds > 0 ? _duration.inMilliseconds.toDouble() : 1.0;
-    
+  Widget build(BuildContext context) {    
     final parts = widget.title.split('-');
     final animeTitle = parts.length > 1 ? parts.sublist(0, parts.length - 1).join('-').trim() : widget.title;
     final epTitle = parts.length > 1 ? parts.last.trim() : 'Episode 1';
@@ -482,74 +487,19 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
               child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 3),
             ),
 
-          // ==========================================
-          // 2. GESTURE LAYER FOR SKIP RIPPLES
-          // ==========================================
-          Positioned.fill(
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _isLocked ? () => setState(() => _showControls = !_showControls) : _toggleControls,
-                    onDoubleTap: _isLocked ? null : () => _triggerDoubleTapRipple(false),
-                    child: AnimatedOpacity(
-                      opacity: _showRewindRipple ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 150),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          gradient: RadialGradient(colors: [Colors.black54, Colors.transparent], center: Alignment.center, radius: 0.8),
-                        ),
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.fast_rewind_rounded, color: Colors.white, size: 40),
-                              SizedBox(height: 8),
-                              Text("-10s", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Blank middle gesture area to catch center taps
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _toggleControls,
-                  ),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _isLocked ? () => setState(() => _showControls = !_showControls) : _toggleControls,
-                    onDoubleTap: _isLocked ? null : () => _triggerDoubleTapRipple(true),
-                    child: AnimatedOpacity(
-                      opacity: _showForwardRipple ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 150),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          gradient: RadialGradient(colors: [Colors.black54, Colors.transparent], center: Alignment.center, radius: 0.8),
-                        ),
-                        child: const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.fast_forward_rounded, color: Colors.white, size: 40),
-                              SizedBox(height: 8),
-                              Text("+10s", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+            GlassyGestureOverlay(
+  isLocked: _isLocked,
+  showForwardRipple: _showForwardRipple,
+  showRewindRipple: _showRewindRipple,
+  onToggleControls: () {
+    if (_isLocked) {
+      setState(() => _showControls = !_showControls);
+    } else {
+      _toggleControls();
+    }
+  },
+  onDoubleTapSeek: (isForward) => _triggerDoubleTapRipple(isForward),
+),
 
           // ==========================================
           // 3. UI OVERLAY LAYER (Fixes the stubborn fade bug)
@@ -585,135 +535,61 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                         ),
                       ),
 
-                    // TOP BAR
+                    GlassyTopBar(
+  animeTitle: animeTitle,
+  epTitle: epTitle,
+  fullTitle: widget.title,
+  quality: widget.playerController.selectedStream?.quality ?? widget.quality,
+  isLocked: _isLocked,
+  onBack: () {
+    _resetControlsTimer();
+    Navigator.pop(context);
+  },
+  onLockToggle: () {
+    setState(() => _isLocked = !_isLocked);
+    _resetControlsTimer();
+  },
+  onPipPressed: () {
+    _resetControlsTimer();
+    _showToast("PIP Mode coming soon!");
+  },
+  onSettingsPressed: _showTopSettingsPopup, // Timer reset is already handled inside this function
+),
                     if (!_isLocked)
-                      Positioned(
-                        top: MediaQuery.paddingOf(context).top + 16,
-                        left: 20,
-                        right: 20,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildGlassyCard(
-                              padding: const EdgeInsets.all(8),
-                              onTap: () => Navigator.pop(context),
-                              child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    epTitle.length > 20 ? epTitle : widget.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      _buildChip(animeTitle),
-                                      const SizedBox(width: 6),
-                                      _buildChip(epTitle),
-                                      const SizedBox(width: 6),
-                                      _buildChip(widget.playerController.selectedStream?.quality ?? widget.quality),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                _buildGlassyCard(
-                                  padding: const EdgeInsets.all(8),
-                                  onTap: () {
-                                    setState(() => _isLocked = true);
-                                    _resetControlsTimer();
-                                  },
-                                  child: const Icon(Icons.lock_open_rounded, color: Colors.white, size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                _buildGlassyCard(
-                                  padding: const EdgeInsets.all(8),
-                                  onTap: () => _showToast("PIP Mode coming soon!"),
-                                  child: const Icon(Icons.picture_in_picture_alt_rounded, color: Colors.white, size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                _buildGlassyCard(
-                                  padding: const EdgeInsets.all(8),
-                                  onTap: _showTopSettingsPopup,
-                                  child: const Icon(Icons.settings_rounded, color: Colors.white, size: 20),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+  GlassyCenterControls(
+    isPlaying: _isPlaying,
+    onPlayPause: () {
+      _player.playOrPause();
+      _resetControlsTimer();
+    },
+    onPrevious: () {
+      _resetControlsTimer();
+      if (widget.onPreviousEpisode != null) {
+        widget.onPreviousEpisode!();
+      } else {
+        _showToast("No previous episode available");
+      }
+    },
+    onNext: () async {
+      _resetControlsTimer();
+      if (widget.onNextEpisode != null) {
+        // 👇 INJECT THE ANTI-SPAM LOGIC HERE 👇
+        if (!_isTransitioningToNext) {
+          setState(() => _isTransitioningToNext = true);
+          _player.pause(); // Mute the current stream immediately
+          debugPrint("Manual skip triggered.");
 
-                    // LOCK BUTTON (When locked)
-                    if (_isLocked)
-                      Positioned(
-                        top: MediaQuery.paddingOf(context).top + 16,
-                        right: 20,
-                        child: _buildGlassyCard(
-                          padding: const EdgeInsets.all(8),
-                          onTap: () {
-                            setState(() => _isLocked = false);
-                            _resetControlsTimer();
-                          },
-                          child: const Icon(Icons.lock_rounded, color: AppColors.primary, size: 20),
-                        ),
-                      ),
-
-                    // 🛑 4. LOGICAL CENTER CONTROLS
-                    if (!_isLocked)
-                      Center(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildGlassyCard(
-                              padding: const EdgeInsets.all(12),
-                              onTap: () {
-                                _resetControlsTimer();
-                                if (widget.onPreviousEpisode != null) {
-                                  widget.onPreviousEpisode!();
-                                } else {
-                                  _showToast("No previous episode available");
-                                }
-                              },
-                              child: const Icon(Icons.skip_previous_rounded, color: Colors.white, size: 36),
-                            ),
-                            const SizedBox(width: 32),
-                            _buildGlassyCard(
-                              padding: const EdgeInsets.all(16),
-                              onTap: () {
-                                _player.playOrPause();
-                                _resetControlsTimer();
-                              },
-                              child: Icon(
-                                _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                color: Colors.white,
-                                size: 48,
-                              ),
-                            ),
-                            const SizedBox(width: 32),
-                            _buildGlassyCard(
-                              padding: const EdgeInsets.all(12),
-                              onTap: () {
-                                _resetControlsTimer();
-                                if (widget.onNextEpisode != null) {
-                                  widget.onNextEpisode!();
-                                } else {
-                                  _showToast("No next episode available");
-                                }
-                              },
-                              child: const Icon(Icons.skip_next_rounded, color: Colors.white, size: 36),
-                            ),
-                          ],
-                        ),
-                      ),
-
+          final success = await widget.onNextEpisode!();
+          // 👇 Unlock the flag if the fetch fails
+          if (mounted && !success) {
+            setState(() => _isTransitioningToNext = false);
+          }
+        }
+      } else {
+        _showToast("No next episode available");
+      }
+    },
+  ),
                     // TOAST NOTIFICATION
                     if (_toastMessage != null)
                       Align(
@@ -735,118 +611,45 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                         ),
                       ),
 
-                    // ==========================================
-                    // BOTTOM BAR AREA
-                    // ==========================================
                     if (!_isLocked)
-                      Positioned(
-                        bottom: MediaQuery.paddingOf(context).bottom + 16,
-                        left: 20,
-                        right: 20,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Padding(
-                                padding: const EdgeInsets.only(bottom: 8.0),
-                                child: _buildGlassyCard(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  onTap: () => _seekRelative(85),
-                                  child: const Text("+85s", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                                ),
-                              ),
-                            ),
-
-                            // 🛑 5. EXACT PILL SLIDER FROM SCREENSHOT
-                            SliderTheme(
-                              data: SliderThemeData(
-                                trackHeight: 8, // Thicker bar
-                                activeTrackColor: const Color(0xFFC4C4FF), // Light periwinkle
-                                inactiveTrackColor: Colors.white.withValues(alpha: 0.15),
-                                thumbColor: const Color(0xFFC4C4FF),
-                                thumbShape: const _PillSliderThumbShape(thumbWidth: 6, thumbHeight: 22),
-                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                                trackShape: const RoundedRectSliderTrackShape(), // Fully rounded edges
-                              ),
-                              child: Slider(
-                                min: 0.0,
-                                max: maxDuration,
-                                value: _position.inMilliseconds.toDouble().clamp(0.0, maxDuration),
-                                onChanged: (val) {
-                                  _resetControlsTimer();
-                                  _player.seek(Duration(milliseconds: val.toInt()));
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    _buildGlassyCard(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                      child: Text(_formatDuration(_position), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _buildGlassyCard(
-                                      padding: const EdgeInsets.all(8),
-                                      onTap: _showPlaylistSheet,
-                                      child: const Icon(Icons.playlist_play_rounded, color: Colors.white, size: 20),
-                                    ),
-                                  ],
-                                ),
-
-                                Row(
-                                  children: [
-                                    _buildGlassyCard(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                      child: Row(
-                                        children: [
-                                          _buildToolbarIcon(Icons.tune_rounded, () {
-                                            showModalBottomSheet(
-                                              context: context,
-                                              backgroundColor: Colors.transparent,
-                                              isScrollControlled: true,
-                                              builder: (_) => SubtitleSelectorSheet(playerController: widget.playerController),
-                                            );
-                                          }),
-                                          _buildToolbarIcon(Icons.cloud_outlined, () {
-                                            showModalBottomSheet(
-                                              context: context,
-                                              backgroundColor: Colors.transparent,
-                                              isScrollControlled: true,
-                                              builder: (_) => StreamQualityBottomSheet(
-                                                streamLinks: widget.playerController.streamLinks,
-                                                selectedStream: widget.playerController.selectedStream,
-                                                onStreamSelected: (StreamLink stream) {
-                                                  _hasSetSubtitle = false;
-                                                  widget.playerController.selectStream(stream);
-                                                },
-                                              ),
-                                            );
-                                          }),
-                                          _buildToolbarIcon(Icons.speed_rounded, _cycleSpeed),
-                                          _buildToolbarIcon(Icons.aspect_ratio_rounded, _cycleFit),
-                                          _buildToolbarIcon(Icons.open_in_new_rounded, _showMoreOptionsSheet),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _buildGlassyCard(
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                      child: Text(_formatDuration(_duration), style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
+  GlassyBottomBar(
+    position: _position,
+    duration: _duration,
+    onSkipIntro: () => _seekRelative(85),
+    onSeek: (newPos) {
+      _resetControlsTimer();
+      _player.seek(newPos);
+    },
+    onPlaylistPressed: _showPlaylistSheet,
+    onSubtitlesPressed: () {
+      _resetControlsTimer();
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (_) => SubtitleSelectorSheet(playerController: widget.playerController),
+      );
+    },
+    onQualityPressed: () {
+      _resetControlsTimer();
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (_) => StreamQualityBottomSheet(
+          streamLinks: widget.playerController.streamLinks,
+          selectedStream: widget.playerController.selectedStream,
+          onStreamSelected: (stream) {
+            _hasSetSubtitle = false;
+            widget.playerController.selectStream(stream);
+          },
+        ),
+      );
+    },
+    onSpeedPressed: _cycleSpeed,
+    onFitPressed: _cycleFit,
+    onMoreOptionsPressed: _showMoreOptionsSheet,
+  ),
                   ],
                 ),
               ),
@@ -855,90 +658,5 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
         ],
       ),
     );
-  }
-
-  Widget _buildGlassyCard({required Widget child, required EdgeInsets padding, VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: () {
-        if (onTap != null) {
-          onTap();
-        }
-        _resetControlsTimer();
-      },
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: const Color(0xFF14141B).withValues(alpha: 0.85),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF332D41),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(color: Color(0xFFB39DDB), fontSize: 11, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  Widget _buildToolbarIcon(IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: () {
-        onTap();
-        _resetControlsTimer();
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-        child: Icon(icon, color: Colors.white, size: 20),
-      ),
-    );
-  }
-}
-
-// 🛑 CUSTOM VERTICAL PILL THUMB (Replicates Screenshot)
-class _PillSliderThumbShape extends SliderComponentShape {
-  final double thumbWidth;
-  final double thumbHeight;
-
-  const _PillSliderThumbShape({this.thumbWidth = 6.0, this.thumbHeight = 22.0});
-
-  @override
-  Size getPreferredSize(bool isEnabled, bool isDiscrete) {
-    return Size(thumbWidth, thumbHeight);
-  }
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset center, {
-    required Animation<double> activationAnimation,
-    required Animation<double> enableAnimation,
-    required bool isDiscrete,
-    required TextPainter labelPainter,
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required TextDirection textDirection,
-    required double value,
-    required double textScaleFactor,
-    required Size sizeWithOverflow,
-  }) {
-    final Canvas canvas = context.canvas;
-    final Paint paint = Paint()..color = sliderTheme.thumbColor ?? Colors.white;
-
-    final RRect thumbRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: center, width: thumbWidth, height: thumbHeight),
-      Radius.circular(thumbWidth / 2),
-    );
-
-    canvas.drawRRect(thumbRect, paint);
   }
 }

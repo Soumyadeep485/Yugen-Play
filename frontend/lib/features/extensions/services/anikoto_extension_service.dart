@@ -145,13 +145,13 @@ class AnikotoExtensionService {
         if (embedUrl != null && embedUrl.isNotEmpty) {
           if (embedUrl.startsWith('//')) {
             embedUrl = 'https:$embedUrl';
-          } else if (embedUrl.startsWith('/')) embedUrl = '$baseUrl$embedUrl';
-
+          } else if (embedUrl.startsWith('/')) {embedUrl = '$baseUrl$embedUrl';
+          }
           final isDub = embedUrl.toLowerCase().contains('/dub');
           if (isDub && dubCount >= maxPerType) continue;
           if (!isDub && subCount >= maxPerType) continue;
 
-          final streams = await _extractFromPlayer(embedUrl, serverName);
+          final streams = await _extractFromPlayer(embedUrl, serverName, isDub);
           for (var stream in streams) {
             if (stream.quality.contains('DUB') && dubCount < maxPerType) {
               collectedStreams.add(stream);
@@ -174,6 +174,7 @@ class AnikotoExtensionService {
   Future<List<StreamLink>> _extractFromPlayer(
     String embedUrl,
     String serverName,
+    bool isDub,
   ) async {
     try {
       final uri = Uri.parse(embedUrl);
@@ -269,8 +270,7 @@ class AnikotoExtensionService {
 
         final parsedStreams = _parseSources(apiJson['sources']);
         if (parsedStreams.isNotEmpty) {
-          final prefix =
-              streamType.isNotEmpty ? streamType.toUpperCase() : 'SUB';
+          final prefix = isDub ? 'DUB' : 'SUB';
           return [
             StreamLink(
               sourceName: serverName,

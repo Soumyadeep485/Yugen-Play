@@ -1,4 +1,4 @@
-package com.example.frontend
+package com.zenx.yugenplay
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.frontend"
+    namespace = "com.zenx.yugenplay"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.frontend"
+        applicationId = "com.zenx.yugenplay"
 
         // Explicitly set minSdk to 21 (Required for media_kit, FFI, & Rust)
         minSdk = flutter.minSdkVersion

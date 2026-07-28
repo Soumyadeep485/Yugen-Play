@@ -12,11 +12,11 @@ import 'src/rust/frb_generated.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 🛑 Initialize MediaKit BEFORE anything else tries to use it
-  MediaKit.ensureInitialized();
-
   // Initialize Hive Local Storage
   await HiveService.initialize();
+  
+  // 🛑 Initialize MediaKit BEFORE anything else tries to use it
+  MediaKit.ensureInitialized();
 
   // Initialize the Rust native bridge library
   await RustLib.init();

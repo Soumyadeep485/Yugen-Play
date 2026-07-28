@@ -29,10 +29,10 @@ class ProfileBottomSheet extends StatelessWidget {
               ),
             ),
             
-            // 🛑 THE GUEST CARD
+            // THE GUEST CARD
             GestureDetector(
               onTap: () {
-                // TODO: Implement Anilist OAuth Login later
+                //  Implement Anilist OAuth Login later
                 debugPrint("Navigate to Login");
               },
               child: Container(
