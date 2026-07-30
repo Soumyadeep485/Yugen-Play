@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:dio/dio.dart'; // 🚀 NEW: Required for the AniSkip API calls
 import '../../library/services/library_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -36,6 +37,14 @@ class PlayerController extends ChangeNotifier {
   int? _currentTotalEpisodes;
   bool _hasMarkedCompleted = false;
   bool _hasMarkedWatching = false;
+  bool _hasFetchedSkipTimes = false;
+  StreamSubscription? _durationSubscription;
+
+  // 🚀 NEW: AniSkip State Variables
+  Duration? _introStart;
+  Duration? _introEnd;
+  Duration? _outroStart;
+  Duration? _outroEnd;
 
   late final Player player;
   late final VideoController videoController;
@@ -62,6 +71,12 @@ class PlayerController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  // 🚀 NEW: AniSkip Getters for the UI
+  Duration? get introStart => _introStart;
+  Duration? get introEnd => _introEnd;
+  Duration? get outroStart => _outroStart;
+  Duration? get outroEnd => _outroEnd;
+
   Future<void> fetchStreamsForEpisode({
     required Episode episode,
     required String animeId,
@@ -76,6 +91,13 @@ class PlayerController extends ChangeNotifier {
     _currentTotalEpisodes = totalEpisodes;
     _hasMarkedCompleted = false;
     _hasMarkedWatching = false;
+
+    // Reset Skip Times for the new episode
+    _introStart = null;
+    _introEnd = null;
+    _outroStart = null;
+    _outroEnd = null;
+    _hasFetchedSkipTimes = false;
 
     _isLoading = true;
     _errorMessage = null;
@@ -93,7 +115,6 @@ class PlayerController extends ChangeNotifier {
           '⚠️ [Player] Primary scraper failed. Trying Dynamic Gist...',
         );
 
-        // Sanitize the ID strictly for the Vidtube fallback (e.g. "Dr. STONE" -> "dr-stone")
         final parts = episode.id.split('-ep-');
         final safeTitle = parts.first
             .toLowerCase()
@@ -109,11 +130,9 @@ class PlayerController extends ChangeNotifier {
         if (dynamicStream != null) links.add(dynamicStream);
       }
 
-      // Update the state with whatever we found
       _streamLinks = links;
 
       if (links.isNotEmpty) {
-        // Let the UI handle stream selection (fixes background audio bug)
         _selectedStream = null;
       } else {
         _errorMessage = 'No streams found for this episode.';
@@ -126,6 +145,89 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ============================================================================
+  // 🚀 ANISKIP API INTEGRATION (Smart Fallback & Diagnostics)
+  // ============================================================================
+  Future<void> _fetchSkipTimes(int anilistId, int episodeNumber, int episodeLength) async {
+    if (anilistId == 0) return;
+
+    try {
+      final dio = Dio();
+      
+      // Step 1: Get the MAL ID
+      final alRes = await dio.post(
+        'https://graphql.anilist.co',
+        data: {
+          'query': '''
+            query (\$id: Int) {
+              Media(id: \$id) {
+                idMal
+              }
+            }
+          ''',
+          'variables': {'id': anilistId},
+        },
+      );
+
+      final malId = alRes.data['data']?['Media']?['idMal'];
+      if (malId == null) {
+        debugPrint('⚠️ [AniSkip] No MAL ID found for AniList ID: $anilistId');
+        return;
+      }
+
+      debugPrint('🔍 [AniSkip] Looking up MAL: $malId, Ep: $episodeNumber, Exact Length: ${episodeLength}s');
+
+      // Helper function to keep the URL clean
+      Future<Response> fetchFromAniSkip(int length) {
+        // FIX 1: Removed the word "/episode/" from the path
+        // FIX 2: Added bracket notation to the array parameters just to be safe
+        final url = 'https://api.aniskip.com/v2/skip-times/$malId/$episodeNumber'
+            '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&types[]=recap&episodeLength=$length';
+            
+        debugPrint('🌐 [AniSkip] Calling: $url');
+        // Accept ANY status code so we can read the actual error body
+        return dio.get(url, options: Options(validateStatus: (status) => true)); 
+      }
+
+      // Step 2: Try with the exact video length from media_kit
+      var skipRes = await fetchFromAniSkip(episodeLength);
+
+      // Step 3: If it 404s (due to scraped video watermark/length mismatch), fallback to 0
+      if (skipRes.statusCode == 404) {
+        debugPrint('⚠️ [AniSkip] Exact length rejected. Falling back to generic length (0)...');
+        skipRes = await fetchFromAniSkip(0);
+      }
+
+      // Step 4: Parse the results
+      if (skipRes.statusCode == 200 && skipRes.data['found'] == true) {
+        final results = skipRes.data['results'] as List;
+        debugPrint('✅ [AniSkip] Match found! Parsing ${results.length} timestamps...');
+        
+        for (var result in results) {
+          final type = result['skipType'];
+          final start = (result['interval']['startTime'] as num).toDouble();
+          final end = (result['interval']['endTime'] as num).toDouble();
+
+          if (type == 'op' || type == 'mixed-op') { 
+            _introStart = Duration(milliseconds: (start * 1000).toInt());
+            _introEnd = Duration(milliseconds: (end * 1000).toInt());
+          } else if (type == 'ed' || type == 'mixed-ed') { 
+            _outroStart = Duration(milliseconds: (start * 1000).toInt());
+            _outroEnd = Duration(milliseconds: (end * 1000).toInt());
+          }
+        }
+        notifyListeners(); 
+      } else {
+        // 🛑 Diagnostic output: If it fails, this will tell us exactly why.
+        debugPrint('❌ [AniSkip] Completely failed. Status: ${skipRes.statusCode}');
+        debugPrint('❌ [AniSkip] Raw Response Body: ${skipRes.data}');
+      }
+
+    } catch (e) {
+      debugPrint('🚨 [AniSkip] Fatal error during fetch: $e');
+    }
+  }
+
   void selectStream(StreamLink stream) {
     _selectedStream = stream;
     _isLoading = false;
@@ -133,6 +235,16 @@ class PlayerController extends ChangeNotifier {
 
     final media = Media(stream.url, httpHeaders: stream.headers);
     player.open(media);
+
+    // 🚀 Wait for the exact video duration before asking AniSkip for timestamps
+    _durationSubscription?.cancel();
+    _durationSubscription = player.stream.duration.listen((duration) {
+      if (duration.inMilliseconds > 0 && !_hasFetchedSkipTimes) {
+        _hasFetchedSkipTimes = true;
+        final lengthInSeconds = (duration.inMilliseconds / 1000).round();
+        _fetchSkipTimes(int.tryParse(_currentAnimeId ?? '') ?? 0, _selectedEpisode?.number ?? 1, lengthInSeconds);
+      }
+    });
 
     if (_currentAnimeId != null) {
       final savedData = _historyService.getHistory(_currentAnimeId!);
@@ -148,7 +260,6 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  
   void _startTrackingPosition() {
     _positionSubscription?.cancel();
     _positionSubscription = player.stream.position.listen((position) {
@@ -173,7 +284,6 @@ class PlayerController extends ChangeNotifier {
       if (duration.inMilliseconds > 0 && _currentAnimeId != null) {
         final double progress = position.inMilliseconds / duration.inMilliseconds;
         
-        // 1. Move to "Watching" after 5% of the episode is played
         if (progress > 0.05 && !_hasMarkedWatching) {
           _hasMarkedWatching = true;
           _libraryService.upsertFromPlayer(
@@ -185,11 +295,9 @@ class PlayerController extends ChangeNotifier {
           );
         }
 
-        // 2. Move to "Completed" at 90% ONLY IF it's the final episode
-        // 2. Move to "Completed" at 90% ONLY IF it's the final episode
         if (progress > 0.90 && !_hasMarkedCompleted) {
           _hasMarkedCompleted = true;
-          final currentEpNum = _selectedEpisode?.number ?? 0; // 🛑 Removed int.tryParse
+          final currentEpNum = _selectedEpisode?.number ?? 0; 
           
           if (_currentTotalEpisodes != null && currentEpNum == _currentTotalEpisodes) {
             debugPrint("🎉 [Player] Final episode finished! Auto-completing series.");
@@ -209,6 +317,7 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
     player.dispose();
     super.dispose();
   }

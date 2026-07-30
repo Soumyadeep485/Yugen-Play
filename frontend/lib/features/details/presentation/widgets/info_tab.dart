@@ -52,11 +52,10 @@ class InfoTab extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: onLibraryTap,
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.1),
+                backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
                 ),
               ),
               icon: Icon(
@@ -94,7 +93,6 @@ class InfoTab extends StatelessWidget {
               final totalEps = anime.episodes ?? 0;
               final hasTotal = totalEps > 0;
               
-              // Assuming average of 24 mins per episode for the calculations
               final totalMinutes = hasTotal ? totalEps * 24 : 0;
               final watchedMinutes = currentEp * 24;
               final remainingMinutes = hasTotal ? (totalMinutes - watchedMinutes) : 0;
@@ -109,7 +107,6 @@ class InfoTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top Row: Episode X of Y + Percentage Pill
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -151,7 +148,6 @@ class InfoTab extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     
-                    // Bottom Row: Total / Watched / Remaining
                     Row(
                       children: [
                         Expanded(child: _buildTimeBlock("Total", _formatTime(totalMinutes))),
@@ -176,14 +172,15 @@ class InfoTab extends StatelessWidget {
           const SizedBox(height: 24),
 
           // ==========================================
-          // 3. STATISTICS DROPDOWN REPLICA
+          // 3. STATISTICS DROPDOWN (Fixed Material Ink)
           // ==========================================
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
+          Material(
+            color: Colors.white.withValues(alpha: 0.08),
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
             ),
+            clipBehavior: Clip.antiAlias,
             child: Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
@@ -225,14 +222,15 @@ class InfoTab extends StatelessWidget {
           const SizedBox(height: 16),
 
           // ==========================================
-          // 4. SYNOPSIS
+          // 4. SYNOPSIS (Fixed Material Ink)
           // ==========================================
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
+          Material(
+            color: Colors.white.withValues(alpha: 0.08),
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
             ),
+            clipBehavior: Clip.antiAlias,
             child: Theme(
               data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
@@ -253,7 +251,7 @@ class InfoTab extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
                     child: Text(
-                      synopsisText.replaceAll("<br>", "\n"), // Clean up dirty HTML tags from Anilist
+                      synopsisText.replaceAll("<br>", "\n"),
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.7),
                         fontSize: 13,
@@ -292,7 +290,7 @@ class InfoTab extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              color: highlight ? const Color(0xFFFFA2A2) : Colors.white, // Light reddish tint for Remaining
+              color: highlight ? const Color(0xFFFFA2A2) : Colors.white,
               fontSize: 13,
               fontWeight: FontWeight.bold,
             ),

@@ -14,6 +14,8 @@ import '../../../player/models/episode.dart';
 import '../../../player/models/stream_link.dart';
 import '../../../player/presentation/screens/glassy_player_screen.dart';
 import '../../../player/presentation/widgets/stream_quality_bottom_sheet.dart';
+import '../../../../core/utils/device_type.dart';
+import '../../../tv/presentation/screens/tv_player_screen.dart';
 
 class WatchTab extends StatefulWidget {
   final Anime anime;
@@ -252,11 +254,9 @@ class _WatchTabState extends State<WatchTab> {
 
             final String currentEpisodeId = '${widget.anime.title}-ep-${metadata.number}';
 
-            // REMOVE the WatchHistoryService().getHistory(...) logic entirely!
-
-            Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute(
-                builder: (_) => GlassyPlayerScreen(
+            // --- NEW: Traffic Routing ---
+            Widget playerScreen = DeviceType.isTv 
+              ? TvPlayerScreen( // 📺 TV Player
                   title: '${widget.anime.title} - ${metadata.title}',
                   quality: stream.quality,
                   streamUrl: stream.url,
@@ -265,23 +265,34 @@ class _WatchTabState extends State<WatchTab> {
                   episodeId: currentEpisodeId,
                   episodeNumber: metadata.number,
                   posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-                  
-                  // 1. Pass the state exactly as it is when the button is pressed!
-                  onNextEpisode: metadata.number >= totalEpisodes 
-                      ? null 
-                      : () {
-                          final currentStream = playerController.selectedStream;
-                          return _handleAutoPlayNext(
-                            context, 
-                            metadata.number + 1, 
-                            'Episode ${metadata.number + 1}', 
-                            totalEpisodes,
-                            currentStream?.quality ?? '',      // 👈 Capturing Quality
-                            currentStream?.sourceName ?? '',   // 👈 Capturing Server
-                          );
-                        },
-                  ),
-              ),
+                  onNextEpisode: metadata.number >= totalEpisodes ? null : () {
+                    final currentStream = playerController.selectedStream;
+                    return _handleAutoPlayNext(
+                      context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
+                      totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+                    );
+                  },
+                )
+              : GlassyPlayerScreen( // 📱 Mobile Player
+                  title: '${widget.anime.title} - ${metadata.title}',
+                  quality: stream.quality,
+                  streamUrl: stream.url,
+                  playerController: playerController,
+                  animeId: widget.anime.id.toString(),
+                  episodeId: currentEpisodeId,
+                  episodeNumber: metadata.number,
+                  posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+                  onNextEpisode: metadata.number >= totalEpisodes ? null : () {
+                    final currentStream = playerController.selectedStream;
+                    return _handleAutoPlayNext(
+                      context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
+                      totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+                    );
+                  },
+                );
+
+            Navigator.of(context, rootNavigator: true).push(
+              MaterialPageRoute(builder: (_) => playerScreen),
             );
           });
         },
@@ -595,35 +606,45 @@ class _WatchTabState extends State<WatchTab> {
     // 🛑 ONLY FIRED ONCE. NO RACE CONDITIONS. 🛑
     playerController.selectStream(selectedStream);
 
-    // 4. Swap the player screen
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => GlassyPlayerScreen(
+    // --- NEW: Traffic Routing for Next Episode ---
+    Widget nextPlayerScreen = DeviceType.isTv 
+      ? TvPlayerScreen(
           title: '${widget.anime.title} - $nextEpTitle',
-          quality: selectedStream!.quality,
+          quality: selectedStream.quality,
           streamUrl: selectedStream.url,
           playerController: playerController,
           animeId: widget.anime.id.toString(),
           episodeId: nextEpisodeId,
           episodeNumber: nextEpNum,
           posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-          startPosition: null, 
-          // 5. Pass the exact state AGAIN for the next episode in the chain
-          onNextEpisode: nextEpNum >= totalEpisodes 
-              ? null 
-              : () {
-                  final currentStream = playerController.selectedStream;
-                  return _handleAutoPlayNext(
-                    context, 
-                    nextEpNum + 1, 
-                    'Episode ${nextEpNum + 1}', 
-                    totalEpisodes,
-                    currentStream?.quality ?? '',
-                    currentStream?.sourceName ?? '',
-                  );
-                },
-        ),
-      ),
+          onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
+            final currentStream = playerController.selectedStream;
+            return _handleAutoPlayNext(
+              context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
+              totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+            );
+          },
+        )
+      : GlassyPlayerScreen(
+          title: '${widget.anime.title} - $nextEpTitle',
+          quality: selectedStream.quality,
+          streamUrl: selectedStream.url,
+          playerController: playerController,
+          animeId: widget.anime.id.toString(),
+          episodeId: nextEpisodeId,
+          episodeNumber: nextEpNum,
+          posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+          onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
+            final currentStream = playerController.selectedStream;
+            return _handleAutoPlayNext(
+              context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
+              totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+            );
+          },
+        );
+
+    Navigator.of(context, rootNavigator: true).pushReplacement(
+      MaterialPageRoute(builder: (_) => nextPlayerScreen),
     );
     return true;
   }

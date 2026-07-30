@@ -1,9 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 
 import '../../../../core/colors/app_colors.dart';
 import '../../../../shared/models/anime.dart';
 import '../../../details/presentation/screens/anime_details_screen.dart';
-import '../../services/library_service.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -14,9 +15,7 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen>
     with SingleTickerProviderStateMixin {
-  final LibraryService _libraryService = LibraryService();
   late TabController _tabController;
-  List<Map<String, dynamic>> _libraryItems = [];
 
   final List<String> _tabs = [
     'All',
@@ -30,20 +29,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
-    _loadLibrary();
-
-    // Reload the library whenever the user switches tabs to ensure it's fresh
-    _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
-        setState(() {});
-      }
-    });
-  }
-
-  void _loadLibrary() {
-    setState(() {
-      _libraryItems = _libraryService.getLibraryItems();
-    });
   }
 
   @override
@@ -53,100 +38,106 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Widget _buildGrid(String? statusFilter) {
-    // Filter the items in memory based on the current tab
-    final filteredItems = statusFilter == 'All'
-        ? _libraryItems
-        : _libraryItems.where((item) => item['status'] == statusFilter).toList();
+    return ValueListenableBuilder(
+      // 🚀 FIX: Now strictly listens to the database in real-time
+      valueListenable: Hive.box<String>('anime_library').listenable(),
+      builder: (context, box, child) {
+        // Decode the data dynamically
+        final allItems = box.values
+            .map((e) => jsonDecode(e) as Map<String, dynamic>)
+            .toList();
 
-    if (filteredItems.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.folder_open_rounded,
-              size: 64,
-              color: AppColors.textSecondary.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              "No anime found in $statusFilter",
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+        final filteredItems = statusFilter == 'All'
+            ? allItems
+            : allItems.where((item) => item['status'] == statusFilter).toList();
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      physics: const BouncingScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 0.7,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 16,
-      ),
-      itemCount: filteredItems.length,
-      itemBuilder: (context, index) {
-        final item = filteredItems[index];
-        final title = item['title'] ?? 'Unknown';
-        final poster = item['posterUrl'] ?? '';
-        final status = item['status'] ?? '';
-
-        return GestureDetector(
-          onTap: () {
-            // Reconstruct the Anime object to pass to the details screen
-            final reconstructedAnime = Anime(
-              id: item['animeId'],
-              title: title,
-              coverImage: poster,
-              bannerImage: poster,
-              status: status, // Passing the saved status back
-            );
-
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AnimeDetailsScreen(anime: reconstructedAnime),
-              ),
-            ).then((_) {
-              // Reload the library when coming back just in case they deleted it
-              _loadLibrary();
-            });
-          },
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    color: AppColors.card,
-                    image: DecorationImage(
-                      image: NetworkImage(poster),
-                      fit: BoxFit.cover,
-                    ),
+        if (filteredItems.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.folder_open_rounded,
+                  size: 64,
+                  color: AppColors.textSecondary.withValues(alpha: 0.3),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "No anime found in $statusFilter",
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 16,
                   ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  height: 1.2,
-                ),
-              ),
-            ],
+              ],
+            ),
+          );
+        }
+
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          physics: const BouncingScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 0.7,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 16,
           ),
+          itemCount: filteredItems.length,
+          itemBuilder: (context, index) {
+            final item = filteredItems[index];
+            final title = item['title'] ?? 'Unknown';
+            final poster = item['posterUrl'] ?? '';
+            final status = item['status'] ?? '';
+
+            return GestureDetector(
+              onTap: () {
+                final reconstructedAnime = Anime(
+                  id: item['animeId'],
+                  title: title,
+                  coverImage: poster,
+                  bannerImage: poster,
+                  status: status, 
+                );
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AnimeDetailsScreen(anime: reconstructedAnime),
+                  ),
+                );
+              },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: AppColors.card,
+                        image: DecorationImage(
+                          image: NetworkImage(poster),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );

@@ -2,7 +2,7 @@ name: frontend
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.2.0+1
+version: 1.3.0+1
 
 environment:
   sdk: ^3.12.2
@@ -47,6 +47,7 @@ dependencies:
   flutter_go_torrent_streamer: ^0.0.8
   package_info_plus: ^10.2.1
   open_filex: ^4.7.0
+  device_info_plus: ^13.2.0
 
 dev_dependencies:
   flutter_test:

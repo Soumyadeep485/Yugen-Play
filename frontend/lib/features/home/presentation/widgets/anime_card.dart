@@ -3,33 +3,57 @@ import 'package:flutter/material.dart';
 import '../../../../core/colors/app_colors.dart';
 import '../../../../shared/models/anime.dart';
 
-class AnimeCard extends StatelessWidget {
+class AnimeCard extends StatefulWidget {
   final Anime anime;
   final VoidCallback onTap;
 
   const AnimeCard({super.key, required this.anime, required this.onTap});
 
   @override
+  State<AnimeCard> createState() => _AnimeCardState();
+}
+
+class _AnimeCardState extends State<AnimeCard> {
+  bool _isFocused = false;
+
+  @override
   Widget build(BuildContext context) {
-    final displayRating = anime.rating != null
-        ? anime.rating!.toStringAsFixed(1)
+    final displayRating = widget.anime.rating != null
+        ? widget.anime.rating!.toStringAsFixed(1)
         : "N/A";
 
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
+    // InkWell captures TV D-pad focus
+    return InkWell(
+      onTap: widget.onTap,
+      onFocusChange: (hasFocus) {
+        setState(() => _isFocused = hasFocus);
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         width: 145,
+        // The glowing white border when the TV remote points at this card
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isFocused ? Colors.white : Colors.transparent,
+            width: _isFocused ? 3.0 : 0.0,
+          ),
+          boxShadow: _isFocused
+              ? [const BoxShadow(color: Colors.white54, blurRadius: 12, spreadRadius: 1)]
+              : [],
+        ),
         child: Column(
           children: [
             AspectRatio(
               aspectRatio: 2 / 3,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(13), // Adjusted slightly for border fit
                 child: Stack(
                   children: [
                     Positioned.fill(
                       child: Image.network(
-                        anime.coverImage ?? '',
+                        widget.anime.coverImage ?? '',
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => Container(
                           color: AppColors.card,
@@ -61,7 +85,7 @@ class AnimeCard extends StatelessWidget {
                       left: 10,
                       right: 10,
                       child: Text(
-                        anime.title,
+                        widget.anime.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

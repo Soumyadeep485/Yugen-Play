@@ -170,8 +170,8 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
                 _buildSettingRow(
                   label: "Font Size",
                   value: "${SubtitleSelectorSheet.fontSize.toInt()}pt",
-                  onDecrease: () => setState(() => SubtitleSelectorSheet.fontSize = (SubtitleSelectorSheet.fontSize - 2).clamp(20.0, 48.0)),
-                  onIncrease: () => setState(() => SubtitleSelectorSheet.fontSize = (SubtitleSelectorSheet.fontSize + 2).clamp(20.0, 48.0)),
+                  onDecrease: () => setState(() => SubtitleSelectorSheet.fontSize = (SubtitleSelectorSheet.fontSize - 2).clamp(34.0, 58.0)),
+                  onIncrease: () => setState(() => SubtitleSelectorSheet.fontSize = (SubtitleSelectorSheet.fontSize + 2).clamp(34.0, 58.0)),
                 ),
                 const SizedBox(height: 12),
                 Row(

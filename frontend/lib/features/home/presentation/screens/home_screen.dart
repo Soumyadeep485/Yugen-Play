@@ -34,11 +34,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _ambientImageUrl;
 
 @override
-  void initState() {
-    super.initState();
-    // Fire the update check immediately when the screen loads
-    _checkForUpdates(); 
-  }
+void initState() {
+  super.initState();
+  // FIX: Wait for the initial frame to draw BEFORE checking for updates
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      _checkForUpdates();
+    }
+  });
+}
   // Method 1: The API Fetcher
   Future<void> _checkForUpdates() async {
     try {
@@ -132,8 +136,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               child: _ambientImageUrl != null && _ambientImageUrl!.isNotEmpty
                   ? ImageFiltered(
                       key: ValueKey<String>(_ambientImageUrl!),
-                      // 🛑 Lowered blur slightly so the rendering engine doesn't choke
-                      imageFilter: ImageFilter.blur(sigmaX: 45, sigmaY: 45), 
+                      // Lowered blur slightly so the rendering engine doesn't choke
+                      imageFilter: ImageFilter.blur(sigmaX: 25, sigmaY: 25), 
                       child: Container(
                         decoration: BoxDecoration(
                           image: DecorationImage(

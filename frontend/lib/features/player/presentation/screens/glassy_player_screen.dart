@@ -24,21 +24,18 @@ import '../widgets/stream_quality_bottom_sheet.dart';
 import '../widgets/subtitle_selector_sheet.dart';
 import '../../../history/services/watch_history_service.dart'; 
 
-
 class GlassyPlayerScreen extends StatefulWidget {
   final String title;
   final String quality;
   final String streamUrl;
   final PlayerController playerController;
 
-  // 👇 NEW REQUIRED FIELDS FOR HISTORY 👇
   final String animeId;
   final String episodeId;
   final int episodeNumber;
   final String posterUrl;
-  final Duration? startPosition; // Where to resume from
+  final Duration? startPosition; 
 
-  // LOGIC CALLBACKS ADDED HERE
   final Future<bool> Function()? onNextEpisode;
   final VoidCallback? onPreviousEpisode;
 
@@ -95,6 +92,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  Duration _buffer = Duration.zero;
 
   @override
   void initState() {
@@ -107,10 +105,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
     _setupPlayerListeners();
 
-    // 👇 BULLETPROOF RESUME LOGIC (V3 - DECODER SAFE) 👇
     if (widget.startPosition != null && widget.startPosition! > const Duration(seconds: 5)) {
-      
-      // Helper function to safely execute the seek with a micro-delay
       void triggerSafeSeek() {
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) {
@@ -124,17 +119,14 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
         });
       }
 
-      // Scenario A: The video loaded instantly and already knows its duration.
       if (_player.state.duration.inMilliseconds > 0) {
         triggerSafeSeek();
-      } 
-      // Scenario B: Wait for the engine to announce its duration, then seek.
-      else {
+      } else {
         StreamSubscription? resumeSub;
         resumeSub = _player.stream.duration.listen((duration) {
           if (duration.inMilliseconds > 0) {
             triggerSafeSeek();
-            resumeSub?.cancel(); // Kill the listener
+            resumeSub?.cancel(); 
           }
         });
       }
@@ -147,6 +139,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       _isBuffering = _player.state.buffering;
       _position = _player.state.position;
       _duration = _player.state.duration;
+      _buffer = _player.state.buffer; // 🚀 Initialize buffer state
 
       if (_isPlaying && !_hasSetSubtitle) {
         _hasSetSubtitle = true;
@@ -156,7 +149,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
     _resetControlsTimer();
 
-    // 👇 AUTO-PLAY NEXT EPISODE LISTENER 👇
     _completedSub = _player.stream.completed.listen((completed) async {
       if (completed && mounted && widget.onNextEpisode != null) {
         if (!_isTransitioningToNext) {
@@ -165,7 +157,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
           final success = await widget.onNextEpisode!();
 
-// 👇 If the fetch fails and we are still on this screen, unlock the flag!
           if (mounted && !success) {
             setState(() => _isTransitioningToNext = false);
           }
@@ -173,17 +164,14 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       }
     });
     
-    // 👇 START THE BACKGROUND SAVER 👇
     _startHistorySaver();
   }
 
   void _startHistorySaver() {
     _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      // 1. Ask the player engine DIRECTLY for its current stats, bypassing stale UI variables
       final livePosition = _player.state.position;
       final liveDuration = _player.state.duration;
 
-      // 2. Only save if it is actually playing and we have a valid time
       if (mounted && _player.state.playing && livePosition.inMilliseconds > 0 && liveDuration.inMilliseconds > 0) {
         _historyService.saveHistory(
           animeId: widget.animeId,
@@ -251,6 +239,12 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
           setState(() => _duration = dur);
         }
       }),
+      // 🚀 NEW: Continuously update buffer duration from media_kit
+      _player.stream.buffer.listen((buf) {
+        if (mounted) {
+          setState(() => _buffer = buf);
+        }
+      }),
       _player.stream.playing.listen((playing) {
         if (mounted) {
           setState(() => _isPlaying = playing);
@@ -306,7 +300,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
     }
   }
 
-  // 🛑 2. TAP/FADE BUG FIXED: Timer logic strictly enforced
   void _resetControlsTimer() {
     _controlsTimer?.cancel();
     if (_isPlaying && !_isLocked) {
@@ -396,6 +389,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       _showToast("Speed: ${_playbackSpeed}x");
     });
   }
+
   void _showPlaylistSheet() {
     _resetControlsTimer();
     showModalBottomSheet(
@@ -441,8 +435,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
         DeviceOrientation.portraitDown,
       ]);
 
-      //SystemUiMode reset
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     super.dispose();
   }
@@ -487,22 +480,22 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
               child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 3),
             ),
 
-            GlassyGestureOverlay(
-  isLocked: _isLocked,
-  showForwardRipple: _showForwardRipple,
-  showRewindRipple: _showRewindRipple,
-  onToggleControls: () {
-    if (_isLocked) {
-      setState(() => _showControls = !_showControls);
-    } else {
-      _toggleControls();
-    }
-  },
-  onDoubleTapSeek: (isForward) => _triggerDoubleTapRipple(isForward),
-),
+          GlassyGestureOverlay(
+            isLocked: _isLocked,
+            showForwardRipple: _showForwardRipple,
+            showRewindRipple: _showRewindRipple,
+            onToggleControls: () {
+              if (_isLocked) {
+                setState(() => _showControls = !_showControls);
+              } else {
+                _toggleControls();
+              }
+            },
+            onDoubleTapSeek: (isForward) => _triggerDoubleTapRipple(isForward),
+          ),
 
           // ==========================================
-          // 3. UI OVERLAY LAYER (Fixes the stubborn fade bug)
+          // 3. UI OVERLAY LAYER
           // ==========================================
           Positioned.fill(
             child: IgnorePointer(
@@ -512,11 +505,10 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                 duration: const Duration(milliseconds: 250),
                 child: Stack(
                   children: [
-                    // 🛑 TAP BACKGROUND TO DISMISS INSTANTLY
                     if (!_isLocked)
                       Positioned.fill(
                         child: GestureDetector(
-                          onTap: _toggleControls, // Tapping dark space forces close
+                          onTap: _toggleControls,
                           child: Container(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -536,61 +528,60 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                       ),
 
                     GlassyTopBar(
-  animeTitle: animeTitle,
-  epTitle: epTitle,
-  fullTitle: widget.title,
-  quality: widget.playerController.selectedStream?.quality ?? widget.quality,
-  isLocked: _isLocked,
-  onBack: () {
-    _resetControlsTimer();
-    Navigator.pop(context);
-  },
-  onLockToggle: () {
-    setState(() => _isLocked = !_isLocked);
-    _resetControlsTimer();
-  },
-  onPipPressed: () {
-    _resetControlsTimer();
-    _showToast("PIP Mode coming soon!");
-  },
-  onSettingsPressed: _showTopSettingsPopup, // Timer reset is already handled inside this function
-),
-                    if (!_isLocked)
-  GlassyCenterControls(
-    isPlaying: _isPlaying,
-    onPlayPause: () {
-      _player.playOrPause();
-      _resetControlsTimer();
-    },
-    onPrevious: () {
-      _resetControlsTimer();
-      if (widget.onPreviousEpisode != null) {
-        widget.onPreviousEpisode!();
-      } else {
-        _showToast("No previous episode available");
-      }
-    },
-    onNext: () async {
-      _resetControlsTimer();
-      if (widget.onNextEpisode != null) {
-        // 👇 INJECT THE ANTI-SPAM LOGIC HERE 👇
-        if (!_isTransitioningToNext) {
-          setState(() => _isTransitioningToNext = true);
-          _player.pause(); // Mute the current stream immediately
-          debugPrint("Manual skip triggered.");
+                      animeTitle: animeTitle,
+                      epTitle: epTitle,
+                      fullTitle: widget.title,
+                      quality: widget.playerController.selectedStream?.quality ?? widget.quality,
+                      isLocked: _isLocked,
+                      onBack: () {
+                        _resetControlsTimer();
+                        Navigator.pop(context);
+                      },
+                      onLockToggle: () {
+                        setState(() => _isLocked = !_isLocked);
+                        _resetControlsTimer();
+                      },
+                      onPipPressed: () {
+                        _resetControlsTimer();
+                        _showToast("PIP Mode coming soon!");
+                      },
+                      onSettingsPressed: _showTopSettingsPopup,
+                    ),
 
-          final success = await widget.onNextEpisode!();
-          // 👇 Unlock the flag if the fetch fails
-          if (mounted && !success) {
-            setState(() => _isTransitioningToNext = false);
-          }
-        }
-      } else {
-        _showToast("No next episode available");
-      }
-    },
-  ),
-                    // TOAST NOTIFICATION
+                    if (!_isLocked)
+                      GlassyCenterControls(
+                        isPlaying: _isPlaying,
+                        onPlayPause: () {
+                          _player.playOrPause();
+                          _resetControlsTimer();
+                        },
+                        onPrevious: () {
+                          _resetControlsTimer();
+                          if (widget.onPreviousEpisode != null) {
+                            widget.onPreviousEpisode!();
+                          } else {
+                            _showToast("No previous episode available");
+                          }
+                        },
+                        onNext: () async {
+                          _resetControlsTimer();
+                          if (widget.onNextEpisode != null) {
+                            if (!_isTransitioningToNext) {
+                              setState(() => _isTransitioningToNext = true);
+                              _player.pause();
+                              debugPrint("Manual skip triggered.");
+
+                              final success = await widget.onNextEpisode!();
+                              if (mounted && !success) {
+                                setState(() => _isTransitioningToNext = false);
+                              }
+                            }
+                          } else {
+                            _showToast("No next episode available");
+                          }
+                        },
+                      ),
+
                     if (_toastMessage != null)
                       Align(
                         alignment: const Alignment(0, -0.6),
@@ -612,44 +603,49 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                       ),
 
                     if (!_isLocked)
-  GlassyBottomBar(
-    position: _position,
-    duration: _duration,
-    onSkipIntro: () => _seekRelative(85),
-    onSeek: (newPos) {
-      _resetControlsTimer();
-      _player.seek(newPos);
-    },
-    onPlaylistPressed: _showPlaylistSheet,
-    onSubtitlesPressed: () {
-      _resetControlsTimer();
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (_) => SubtitleSelectorSheet(playerController: widget.playerController),
-      );
-    },
-    onQualityPressed: () {
-      _resetControlsTimer();
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (_) => StreamQualityBottomSheet(
-          streamLinks: widget.playerController.streamLinks,
-          selectedStream: widget.playerController.selectedStream,
-          onStreamSelected: (stream) {
-            _hasSetSubtitle = false;
-            widget.playerController.selectStream(stream);
-          },
-        ),
-      );
-    },
-    onSpeedPressed: _cycleSpeed,
-    onFitPressed: _cycleFit,
-    onMoreOptionsPressed: _showMoreOptionsSheet,
-  ),
+                      GlassyBottomBar(
+                        position: _position,
+                        duration: _duration,
+                        buffer: _buffer,
+                        introStart: widget.playerController.introStart,
+                        introEnd: widget.playerController.introEnd,
+                        outroStart: widget.playerController.outroStart,
+                        outroEnd: widget.playerController.outroEnd,
+                        onSkipIntro: () => _seekRelative(85),
+                        onSeek: (newPos) {
+                          _resetControlsTimer();
+                          _player.seek(newPos);
+                        },
+                        onPlaylistPressed: _showPlaylistSheet,
+                        onSubtitlesPressed: () {
+                          _resetControlsTimer();
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: Colors.transparent,
+                            isScrollControlled: true,
+                            builder: (_) => SubtitleSelectorSheet(playerController: widget.playerController),
+                          );
+                        },
+                        onQualityPressed: () {
+                          _resetControlsTimer();
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: Colors.transparent,
+                            isScrollControlled: true,
+                            builder: (_) => StreamQualityBottomSheet(
+                              streamLinks: widget.playerController.streamLinks,
+                              selectedStream: widget.playerController.selectedStream,
+                              onStreamSelected: (stream) {
+                                _hasSetSubtitle = false;
+                                widget.playerController.selectStream(stream);
+                              },
+                            ),
+                          );
+                        },
+                        onSpeedPressed: _cycleSpeed,
+                        onFitPressed: _cycleFit,
+                        onMoreOptionsPressed: _showMoreOptionsSheet,
+                      ),
                   ],
                 ),
               ),

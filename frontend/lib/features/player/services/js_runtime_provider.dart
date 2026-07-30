@@ -16,10 +16,15 @@ class JsRuntimeProvider {
     // Setup a dedicated Dio client with our Cloudflare bypass interceptor
     _dio = Dio();
     _dio.interceptors.add(UserAgentInterceptor());
-    _initEngine();
+    
+    // 🚀 TV PERFORMANCE FIX: Delay engine initialization by 3 seconds
+    // so it doesn't block the UI thread on weak TV hardware during cold boot.
+    Future.delayed(const Duration(seconds: 3), () => _initEngine());
   }
 
   void _initEngine() {
+    if (_isInitialized) return;
+    
     try {
       _runtime = getJavascriptRuntime();
 
@@ -45,6 +50,13 @@ class JsRuntimeProvider {
       debugPrint("✅ JS Runtime Engine initialized with Async Support.");
     } catch (e) {
       debugPrint("❌ Failed to initialize JS Runtime: $e");
+    }
+  }
+
+  // 🚀 Ensure engine is ready before evaluation calls
+  Future<void> _ensureInitialized() async {
+    if (!_isInitialized) {
+      _initEngine();
     }
   }
 
@@ -119,7 +131,7 @@ class JsRuntimeProvider {
   }
 
   void evaluateScript(String script) {
-    if (!_isInitialized) return;
+    if (!_isInitialized) _initEngine();
     final result = _runtime.evaluate(script);
     if (result.isError) debugPrint("❌ JS Error: ${result.stringResult}");
   }
@@ -129,7 +141,7 @@ class JsRuntimeProvider {
     String functionName,
     List<dynamic> args,
   ) async {
-    if (!_isInitialized) return null;
+    await _ensureInitialized(); // 🚀 Wait if engine hasn't spun up yet
 
     final completer = Completer<dynamic>();
     final callId = DateTime.now().millisecondsSinceEpoch.toString();

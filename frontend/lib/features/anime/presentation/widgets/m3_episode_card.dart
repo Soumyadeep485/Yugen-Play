@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/colors/app_colors.dart';
 
-class M3EpisodeCard extends StatelessWidget {
+class M3EpisodeCard extends StatefulWidget {
   final int episodeNumber;
   final String title;
   final String description;
@@ -20,20 +20,34 @@ class M3EpisodeCard extends StatelessWidget {
   });
 
   @override
+  State<M3EpisodeCard> createState() => _M3EpisodeCardState();
+}
+
+class _M3EpisodeCardState extends State<M3EpisodeCard> {
+  bool _isFocused = false; // 👇 TV Focus Tracker
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer( // 👇 Swapped to AnimatedContainer for smooth border fading
+      duration: const Duration(milliseconds: 150),
       margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
       decoration: BoxDecoration(
         color: AppColors.card,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.textPrimary.withValues(alpha: 0.05),
+          // 👇 Bright white border when D-Pad highlights the card
+          color: _isFocused ? Colors.white : AppColors.textPrimary.withValues(alpha: 0.05),
+          width: _isFocused ? 2.0 : 1.0,
         ),
+        boxShadow: _isFocused
+            ? [const BoxShadow(color: Colors.white24, blurRadius: 8, spreadRadius: 1)]
+            : [],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: isCurrentlyLoading ? null : onTap,
+          onTap: widget.isCurrentlyLoading ? null : widget.onTap,
+          onFocusChange: (focused) => setState(() => _isFocused = focused), // 👇 Listen for remote control
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(12.0),
@@ -52,7 +66,7 @@ class M3EpisodeCard extends StatelessWidget {
                             height: 68,
                             color: AppColors.surfaceVariant,
                             child: Image.network(
-                              thumbnailUrl,
+                              widget.thumbnailUrl,
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) =>
                                   const Icon(
@@ -75,7 +89,7 @@ class M3EpisodeCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              "EP $episodeNumber",
+                              "EP ${widget.episodeNumber}",
                               style: const TextStyle(
                                 color: AppColors.background,
                                 fontSize: 10,
@@ -89,7 +103,7 @@ class M3EpisodeCard extends StatelessWidget {
                     const SizedBox(width: 16),
                     Expanded(
                       child: Text(
-                        title,
+                        widget.title,
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 15,
@@ -103,7 +117,7 @@ class M3EpisodeCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  description,
+                  widget.description,
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 13,

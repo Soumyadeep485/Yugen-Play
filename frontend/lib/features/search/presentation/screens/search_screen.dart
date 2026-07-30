@@ -9,6 +9,7 @@ import '../../../../core/colors/app_colors.dart';
 import '../../../details/presentation/screens/anime_details_screen.dart';
 import '../../../home/presentation/widgets/anime_card.dart';
 import '../../controllers/search_provider.dart';
+
 class SearchScreen extends ConsumerStatefulWidget {
   final bool autofocus;
 
@@ -20,7 +21,7 @@ class SearchScreen extends ConsumerStatefulWidget {
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final SearchHistoryService _historyService = SearchHistoryService(); // 🛑 INIT SERVICE
+  final SearchHistoryService _historyService = SearchHistoryService();
 
   @override
   void initState() {
@@ -39,7 +40,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _executeSearch(String query) {
     if (query.trim().isEmpty) return;
     _searchController.text = query;
-    _historyService.addSearch(query); // 🛑 Save to history
+    _historyService.addSearch(query);
     ref.read(searchProvider.notifier).setQuery(query);
   }
 
@@ -71,7 +72,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  // 🛑 NEW: RECENT SEARCHES UI BUILDER
   Widget _buildRecentSearches() {
     return ValueListenableBuilder(
       valueListenable: Hive.box<String>('search_history').listenable(),
@@ -118,8 +118,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               spacing: 10,
               runSpacing: 10,
               children: history.map((query) {
-                return GestureDetector(
+                // FIXED: Replaced GestureDetector with InkWell for TV Focus
+                return InkWell(
                   onTap: () => _executeSearch(query),
+                  borderRadius: BorderRadius.circular(20),
+                  focusColor: Colors.white.withValues(alpha: 0.2), 
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
@@ -137,8 +140,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
                         ),
                         const SizedBox(width: 6),
-                        GestureDetector(
+                        InkWell(
                           onTap: () => _historyService.removeSearch(query),
+                          borderRadius: BorderRadius.circular(10),
+                          focusColor: Colors.red.withValues(alpha: 0.4),
                           child: const Icon(Icons.close_rounded, color: AppColors.textSecondary, size: 14),
                         ),
                       ],
@@ -168,7 +173,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Glassy Search Bar
                 Padding(
                   padding: const EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 12),
                   child: ClipRRect(
@@ -179,7 +183,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         controller: _searchController,
                         autofocus: widget.autofocus,
                         style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
-                        onSubmitted: (value) => _executeSearch(value), // 🛑 Replaced with executor
+                        onSubmitted: (value) => _executeSearch(value),
                         decoration: InputDecoration(
                           hintText: "Search anime...",
                           hintStyle: TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.6)),
@@ -224,7 +228,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
                 ),
 
-                // Active Filter Chips
                 if (searchState.customLabel != null || searchState.genre != null || searchState.format != null)
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -243,12 +246,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
                 const SizedBox(height: 8),
 
-                // 🛑 NEW: DYNAMIC RESULTS OR HISTORY AREA
                 Expanded(
                   child: searchState.isLoading
                       ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                       : isQueryEmpty 
-                          ? _buildRecentSearches() // 🛑 Show History if search is empty
+                          ? _buildRecentSearches() 
                           : searchState.searchResults.isEmpty
                               ? const Center(
                                   child: Text("No results found.", style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
@@ -309,7 +311,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 }
 
-// Modal Content extracted for state management
 class _FilterModalContent extends ConsumerStatefulWidget {
   final SearchState currentState;
   const _FilterModalContent({required this.currentState});
@@ -331,53 +332,58 @@ class _FilterModalContentState extends ConsumerState<_FilterModalContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Center(
-          child: Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.textSecondary.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(2),
+    // FIXED: SingleChildScrollView added to stop TV RenderFlex Overflows
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textSecondary.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 24),
-        const Text("Filters", style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 24),
-        _buildFilterSection(
-          "Format",
-          ["TV", "MOVIE", "OVA", "SPECIAL"],
-          _selectedFormat,
-          (val) => setState(() => _selectedFormat = _selectedFormat == val ? null : val),
-        ),
-        const SizedBox(height: 20),
-        _buildFilterSection(
-          "Genres",
-          ["Action", "Romance", "Sci-Fi", "Horror", "Comedy", "Fantasy", "Drama"],
-          _selectedGenre,
-          (val) => setState(() => _selectedGenre = _selectedGenre == val ? null : val),
-        ),
-        const Spacer(),
-        SizedBox(
-          width: double.infinity,
-          height: 56,
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            ),
-            onPressed: () {
-              ref.read(searchProvider.notifier).setFilter(genre: _selectedGenre, format: _selectedFormat);
-              Navigator.pop(context);
-            },
-            child: const Text("Apply Filters", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          const Text("Filters", style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+          _buildFilterSection(
+            "Format",
+            ["TV", "MOVIE", "OVA", "SPECIAL"],
+            _selectedFormat,
+            (val) => setState(() => _selectedFormat = _selectedFormat == val ? null : val),
           ),
-        ),
-        const SizedBox(height: 16),
-      ],
+          const SizedBox(height: 20),
+          _buildFilterSection(
+            "Genres",
+            ["Action", "Romance", "Sci-Fi", "Horror", "Comedy", "Fantasy", "Drama"],
+            _selectedGenre,
+            (val) => setState(() => _selectedGenre = _selectedGenre == val ? null : val),
+          ),
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              ),
+              onPressed: () {
+                ref.read(searchProvider.notifier).setFilter(genre: _selectedGenre, format: _selectedFormat);
+                Navigator.pop(context);
+              },
+              child: const Text("Apply Filters", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
     );
   }
 
@@ -392,21 +398,27 @@ class _FilterModalContentState extends ConsumerState<_FilterModalContent> {
           runSpacing: 10,
           children: options.map((option) {
             bool isSelected = option == selected;
-            return GestureDetector(
-              onTap: () => onTap(option),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: isSelected ? AppColors.primary.withValues(alpha: 0.2) : AppColors.textPrimary.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: isSelected ? AppColors.primary : Colors.transparent),
-                ),
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+            // FIXED: Upgraded to InkWell for TV Focus Support
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => onTap(option),
+                borderRadius: BorderRadius.circular(12),
+                focusColor: AppColors.primary.withValues(alpha: 0.4),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSelected ? AppColors.primary.withValues(alpha: 0.2) : AppColors.textPrimary.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: isSelected ? AppColors.primary : Colors.transparent),
+                  ),
+                  child: Text(
+                    option,
+                    style: TextStyle(
+                      color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
