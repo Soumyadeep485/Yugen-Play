@@ -14,9 +14,9 @@ class SearchState {
   // Active Filters
   final String? genre;
   final String? format;
-  final String? sort; // e.g., 'POPULARITY_DESC'
-  final String? status; // e.g., 'RELEASING'
-  final String? customLabel; // For the UI Chip (e.g., "Popular Animes")
+  final String? sort; 
+  final String? status; 
+  final String? customLabel; 
 
   SearchState({
     required this.searchResults,
@@ -63,7 +63,6 @@ class SearchNotifier extends Notifier<SearchState> {
     return SearchState(searchResults: [], isLoading: false, currentQuery: "");
   }
 
-  // Setters for UI
   void setQuery(String query) => _triggerSearch(query: query);
 
   void setFilter({String? genre, String? format}) =>
@@ -107,11 +106,12 @@ class SearchNotifier extends Notifier<SearchState> {
     );
 
     try {
+      // 🚀 FIX: Added idMal and synonyms to the GraphQL query for bulletproof mapping
       const graphQLQuery = '''
         query (\$search: String, \$genre: String, \$format: MediaFormat, \$sort: [MediaSort], \$status: MediaStatus) {
           Page(page: 1, perPage: 24) {
             media(search: \$search, type: ANIME, genre: \$genre, format: \$format, sort: \$sort, status: \$status) {
-              id title { english romaji native } coverImage { extraLarge medium large } bannerImage genres averageScore format episodes seasonYear
+              id idMal title { english romaji native } coverImage { extraLarge medium large } bannerImage genres averageScore format episodes seasonYear synonyms
             }
           }
         }
@@ -138,7 +138,7 @@ class SearchNotifier extends Notifier<SearchState> {
       } else if (state.currentQuery.trim().isNotEmpty) {
         sortList.add("SEARCH_MATCH");
       } else {
-        sortList.add("TRENDING_DESC"); // Default when nothing is selected
+        sortList.add("TRENDING_DESC"); 
       }
       variables['sort'] = sortList;
 

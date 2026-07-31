@@ -65,13 +65,14 @@ class GlassyTopBar extends StatelessWidget {
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 6),
+                // 🚀 FIX: Wrapped chips in Flexible so they shrink instead of overflowing
                 Row(
                   children: [
-                    _buildChip(animeTitle),
+                    Flexible(child: _buildChip(animeTitle)),
                     const SizedBox(width: 6),
-                    _buildChip(epTitle),
+                    Flexible(child: _buildChip(epTitle)),
                     const SizedBox(width: 6),
-                    _buildChip(quality),
+                    Flexible(child: _buildChip(quality)),
                   ],
                 ),
               ],
@@ -127,6 +128,8 @@ class GlassyTopBar extends StatelessWidget {
       ),
       child: Text(
         text,
+        maxLines: 1, // 🚀 FIX: Force text to one line
+        overflow: TextOverflow.ellipsis, // 🚀 FIX: Add "..." when the chip is squeezed
         style: const TextStyle(color: Color(0xFFB39DDB), fontSize: 11, fontWeight: FontWeight.bold),
       ),
     );

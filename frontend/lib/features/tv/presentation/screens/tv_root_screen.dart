@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-
 import 'tv_library_screen.dart';
 import '../../../list/presentation/screens/list_screen.dart';
 import 'tv_search_screen.dart';
@@ -16,28 +15,27 @@ class TvRootScreen extends StatefulWidget {
 class _TvRootScreenState extends State<TvRootScreen> {
   int _selectedIndex = 0;
 
-  // Reordered to match the Top Nav structure
   final List<Widget> _screens = [
     const TvHomeScreen(),      // 0: HOME
-    const TvLibraryScreen(),     // 1: LIBRARY
+    const TvLibraryScreen(),   // 1: LIBRARY
     const ListScreen(),        // 2: SCHEDULE / LISTS
     const TvSearchScreen(),    // 3: SEARCH
-    const Center(child: Text("Settings", style: TextStyle(color: Colors.white))), // 4: SETTINGS (Placeholder)
+    const Center(child: Text("Settings", style: TextStyle(color: Colors.white))), // 4: SETTINGS
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // Sleek pure black foundation
+      backgroundColor: Colors.black, 
       body: Column(
         children: [
           // ==========================================
-          // TOP NAVIGATION BAR (Matches Screenshot)
+          // TOP NAVIGATION BAR
           // ==========================================
           Padding(
             padding: const EdgeInsets.only(top: 32, left: 40, right: 40, bottom: 16),
             child: FocusTraversalGroup(
-              policy: WidgetOrderTraversalPolicy(), // Strict Left-to-Right D-Pad routing
+              policy: WidgetOrderTraversalPolicy(), 
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -55,6 +53,7 @@ class _TvRootScreenState extends State<TvRootScreen> {
                       _TvNavTextButton(
                         label: "HOME",
                         isSelected: _selectedIndex == 0,
+                        autofocus: true, // 🚀 Snaps focus here immediately on app launch
                         onTap: () => setState(() => _selectedIndex = 0),
                       ),
                       const SizedBox(width: 32),
@@ -106,11 +105,13 @@ class _TvNavTextButton extends StatefulWidget {
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
+  final bool autofocus;
 
   const _TvNavTextButton({
     required this.label,
     required this.isSelected,
     required this.onTap,
+    this.autofocus = false, // 🚀 Added autofocus parameter
   });
 
   @override
@@ -125,6 +126,7 @@ class _TvNavTextButtonState extends State<_TvNavTextButton> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        autofocus: widget.autofocus, // 🚀 Pass autofocus down to InkWell
         onTap: widget.onTap,
         onFocusChange: (focused) => setState(() => _isFocused = focused),
         borderRadius: BorderRadius.circular(8),
@@ -142,7 +144,6 @@ class _TvNavTextButtonState extends State<_TvNavTextButton> {
           child: Text(
             widget.label,
             style: TextStyle(
-              // Matches screenshot: White & bold if selected, Grey if not
               color: widget.isSelected || _isFocused ? Colors.white : Colors.white54,
               fontSize: 16,
               fontWeight: widget.isSelected || _isFocused ? FontWeight.bold : FontWeight.w600,
@@ -180,7 +181,7 @@ class _TvNavIconButtonState extends State<_TvNavIconButton> {
       child: InkWell(
         onTap: widget.onTap,
         onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(32), // Circular focus for icons
+        borderRadius: BorderRadius.circular(32), 
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.all(12),
@@ -194,7 +195,6 @@ class _TvNavIconButtonState extends State<_TvNavIconButton> {
           ),
           child: Icon(
             widget.icon,
-            // Matches screenshot: White if active/focused, Grey if inactive
             color: widget.isSelected || _isFocused ? Colors.white : Colors.white54,
             size: 28,
           ),

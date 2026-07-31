@@ -24,7 +24,6 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
     return widget.anime.description!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   }
 
-  // 🚀 Logic to handle the Library Popup when the poster is clicked
   void _showLibraryPopup(BuildContext context) {
     showDialog(
       context: context,
@@ -112,9 +111,12 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
   Widget build(BuildContext context) {
     final bannerImage = widget.anime.bannerImage ?? widget.anime.coverImage ?? '';
     final posterImage = widget.anime.coverImage ?? '';
+    
+    // 🚀 CLEANED UP METADATA EXTRACTION
     final rating = widget.anime.rating != null ? "${widget.anime.rating}%" : "N/A";
     final episodes = widget.anime.episodes != null ? "${widget.anime.episodes} EP" : "TBA";
-    final statusText = widget.anime.status ?? "UNKNOWN";
+    final formatStr = widget.anime.format?.replaceAll('_', ' ') ?? 'TV';
+    final statusText = widget.anime.status?.replaceAll('_', ' ') ?? 'UNKNOWN';
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F0E13),
@@ -201,22 +203,18 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
                       Padding(
                         padding: const EdgeInsets.only(left: 40.0, right: 40.0),
                         child: SizedBox(
-                          width: 220, // 🚀 Reduced width to fix the RenderFlex Overflow!
+                          width: 220, 
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // 🚀 Clickable Hero Poster (Triggers Library Popup)
                               _TvPosterButton(
                                 imageUrl: posterImage,
                                 onTap: () => _showLibraryPopup(context),
                               ),
                               const SizedBox(height: 24),
-                              
-                              // Watch Now Action Card 
                               _TvWatchNowCard(
                                 title: "Watch Now",
                                 onTap: () {
-                                  // Routes directly to WatchTab
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -231,7 +229,7 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
                       ),
 
                       // -----------------------------------------------------
-                      // RIGHT COLUMN: Details (Strictly accurate data only)
+                      // RIGHT COLUMN: Details 
                       // -----------------------------------------------------
                       Expanded(
                         child: SingleChildScrollView(
@@ -247,22 +245,47 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
                               ),
                               const SizedBox(height: 16),
 
-                              // Accurate Metadata Row
-                              Row(
+                              // 🚀 NEW: Accurate Metadata Row with Format, Episodes, Status
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
+                                  _Badge(text: formatStr),
                                   _Badge(text: episodes),
-                                  const SizedBox(width: 12),
-                                  _Badge(text: statusText),
-                                  const SizedBox(width: 24),
-                                  const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
-                                  const SizedBox(width: 6),
-                                  Text(rating, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                                  if (statusText != 'UNKNOWN') _Badge(text: statusText),
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star_rounded, color: Colors.amber, size: 22),
+                                      const SizedBox(width: 6),
+                                      Text(rating, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
                                 ],
                               ),
                               
-                              const SizedBox(height: 32),
+                              // 🚀 NEW: Dynamic Genre Injection
+                              if (widget.anime.genres != null && widget.anime.genres!.isNotEmpty) ...[
+                                const SizedBox(height: 16),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: widget.anime.genres!.map((genre) => Text(
+                                    genre.toUpperCase(),
+                                    style: const TextStyle(
+                                      color: Color(0xFF3DB4F2), 
+                                      fontSize: 13, 
+                                      fontWeight: FontWeight.w900, 
+                                      letterSpacing: 1.2
+                                    ),
+                                  )).toList(),
+                                ),
+                              ],
+                              
+                              const SizedBox(height: 28),
                               Container(height: 1, color: Colors.white10), 
-                              const SizedBox(height: 32),
+                              const SizedBox(height: 28),
 
                               // Synopsis
                               const Text("SYNOPSIS", style: TextStyle(color: Colors.white54, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
@@ -296,7 +319,6 @@ class _TvAnimeDetailsScreenState extends ConsumerState<TvAnimeDetailsScreen> {
 // UI HELPER WIDGETS
 // ============================================================================
 
-// 🚀 NEW: Clickable Poster Widget for Library Addition
 class _TvPosterButton extends StatefulWidget {
   final String imageUrl;
   final VoidCallback onTap;
@@ -341,7 +363,6 @@ class _TvPosterButtonState extends State<_TvPosterButton> {
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
                   ),
-                  // Overlay icon to indicate it does an action (Add to Library)
                   if (_isFocused)
                     Container(
                       color: Colors.black.withValues(alpha: 0.5),
@@ -477,7 +498,6 @@ class _TvWatchNowCardState extends State<_TvWatchNowCard> {
   }
 }
 
-// Button used inside the Library Modal Popup
 class _LibraryStatusButton extends StatefulWidget {
   final String label;
   final IconData icon;

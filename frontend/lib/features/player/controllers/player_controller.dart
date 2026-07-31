@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:dio/dio.dart'; // 🚀 NEW: Required for the AniSkip API calls
+import 'package:dio/dio.dart'; 
 import '../../library/services/library_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,6 +14,7 @@ import '../models/stream_link.dart';
 import '../services/player_repository.dart';
 import '../services/plugin_manager.dart';
 import '../services/plugin_registry.dart';
+import '../../anime/services/anime_mapping_service.dart'; 
 
 final playerControllerProvider = Provider<PlayerController>((ref) {
   throw UnimplementedError('Initialize this with your dependencies');
@@ -28,6 +29,7 @@ class PlayerController extends ChangeNotifier {
   final DynamicExtensionService _dynamicService = DynamicExtensionService();
   final WatchHistoryService _historyService = WatchHistoryService();
   final LibraryService _libraryService = LibraryService();
+  final AnimeMappingService _mappingService = AnimeMappingService(); 
 
   List<StreamLink> _streamLinks = [];
   StreamLink? _selectedStream;
@@ -40,7 +42,7 @@ class PlayerController extends ChangeNotifier {
   bool _hasFetchedSkipTimes = false;
   StreamSubscription? _durationSubscription;
 
-  // 🚀 NEW: AniSkip State Variables
+  // AniSkip State Variables
   Duration? _introStart;
   Duration? _introEnd;
   Duration? _outroStart;
@@ -71,7 +73,6 @@ class PlayerController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  // 🚀 NEW: AniSkip Getters for the UI
   Duration? get introStart => _introStart;
   Duration? get introEnd => _introEnd;
   Duration? get outroStart => _outroStart;
@@ -106,26 +107,48 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      debugPrint('🎬 [Player] Fetching streams for: ${episode.id}');
-      List<StreamLink> links = await _anikotoService.extractStreams(episode.id);
+      String targetEpisodeId = episode.id;
+      bool isMapped = false;
 
-      // 🛑 ONLY ONE FALLBACK BLOCK
-      if (links.isEmpty) {
-        debugPrint(
-          '⚠️ [Player] Primary scraper failed. Trying Dynamic Gist...',
-        );
+      // 1. Try MAL-Sync Mapping
+      if (episode.anilistId > 0) {
+        final mappedSlug = await _mappingService.getExactSlug(episode.anilistId);
+        if (mappedSlug != null && mappedSlug.isNotEmpty) {
+          targetEpisodeId = '$mappedSlug-ep-${episode.number}';
+          isMapped = true;
+          debugPrint('🎯 [Player] Resolved exact ID via MAL-Sync: $targetEpisodeId');
+        }
+      }
 
-        final parts = episode.id.split('-ep-');
-        final safeTitle = parts.first
-            .toLowerCase()
+      // 2. 🚀 NEW: The Ultimate Fallback Sanitizer (Moved UP!)
+      // If MAL-Sync failed, we MUST clean the title before Anikoto sees it.
+      if (!isMapped) {
+        final parts = targetEpisodeId.split('-ep-');
+        String safeTitle = parts.first.toLowerCase();
+        
+        safeTitle = safeTitle.replaceAll('cour', 'part'); // "Cour 2" -> "part 2"
+        safeTitle = safeTitle.replaceAll('nd season', '2'); // "2nd season" -> "2"
+        safeTitle = safeTitle.replaceAll('rd season', '3'); 
+        safeTitle = safeTitle.replaceAll('th season', ''); 
+        
+        safeTitle = safeTitle
             .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
             .replaceAll(RegExp(r'^-+|-+$'), '');
-        final safeFallbackId =
-            '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
 
+        targetEpisodeId = '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
+        debugPrint('🛠️ [Player] MAL-Sync missed. Sanitized ID for Anikoto: $targetEpisodeId');
+      }
+
+      // 3. NOW run the primary scraper with the clean ID
+      debugPrint('🎬 [Player] Fetching streams for: $targetEpisodeId');
+      List<StreamLink> links = await _anikotoService.extractStreams(targetEpisodeId);
+
+      // 4. If Anikoto completely fails, try the Dynamic Gist
+      if (links.isEmpty) {
+        debugPrint('⚠️ [Player] Primary scraper failed. Trying Dynamic Gist...');
         final dynamicStream = await _dynamicService.extractDynamicStream(
-          embedUrl: 'https://vidtube.site/e/$safeFallbackId',
-          cipherText: safeFallbackId,
+          embedUrl: 'https://vidtube.site/e/$targetEpisodeId',
+          cipherText: targetEpisodeId,
         );
         if (dynamicStream != null) links.add(dynamicStream);
       }
@@ -146,7 +169,7 @@ class PlayerController extends ChangeNotifier {
   }
 
   // ============================================================================
-  // 🚀 ANISKIP API INTEGRATION (Smart Fallback & Diagnostics)
+  // ANISKIP API INTEGRATION
   // ============================================================================
   Future<void> _fetchSkipTimes(int anilistId, int episodeNumber, int episodeLength) async {
     if (anilistId == 0) return;
@@ -154,7 +177,6 @@ class PlayerController extends ChangeNotifier {
     try {
       final dio = Dio();
       
-      // Step 1: Get the MAL ID
       final alRes = await dio.post(
         'https://graphql.anilist.co',
         data: {
@@ -177,28 +199,21 @@ class PlayerController extends ChangeNotifier {
 
       debugPrint('🔍 [AniSkip] Looking up MAL: $malId, Ep: $episodeNumber, Exact Length: ${episodeLength}s');
 
-      // Helper function to keep the URL clean
       Future<Response> fetchFromAniSkip(int length) {
-        // FIX 1: Removed the word "/episode/" from the path
-        // FIX 2: Added bracket notation to the array parameters just to be safe
         final url = 'https://api.aniskip.com/v2/skip-times/$malId/$episodeNumber'
             '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&types[]=recap&episodeLength=$length';
             
         debugPrint('🌐 [AniSkip] Calling: $url');
-        // Accept ANY status code so we can read the actual error body
         return dio.get(url, options: Options(validateStatus: (status) => true)); 
       }
 
-      // Step 2: Try with the exact video length from media_kit
       var skipRes = await fetchFromAniSkip(episodeLength);
 
-      // Step 3: If it 404s (due to scraped video watermark/length mismatch), fallback to 0
       if (skipRes.statusCode == 404) {
         debugPrint('⚠️ [AniSkip] Exact length rejected. Falling back to generic length (0)...');
         skipRes = await fetchFromAniSkip(0);
       }
 
-      // Step 4: Parse the results
       if (skipRes.statusCode == 200 && skipRes.data['found'] == true) {
         final results = skipRes.data['results'] as List;
         debugPrint('✅ [AniSkip] Match found! Parsing ${results.length} timestamps...');
@@ -218,7 +233,6 @@ class PlayerController extends ChangeNotifier {
         }
         notifyListeners(); 
       } else {
-        // 🛑 Diagnostic output: If it fails, this will tell us exactly why.
         debugPrint('❌ [AniSkip] Completely failed. Status: ${skipRes.statusCode}');
         debugPrint('❌ [AniSkip] Raw Response Body: ${skipRes.data}');
       }
@@ -236,7 +250,6 @@ class PlayerController extends ChangeNotifier {
     final media = Media(stream.url, httpHeaders: stream.headers);
     player.open(media);
 
-    // 🚀 Wait for the exact video duration before asking AniSkip for timestamps
     _durationSubscription?.cancel();
     _durationSubscription = player.stream.duration.listen((duration) {
       if (duration.inMilliseconds > 0 && !_hasFetchedSkipTimes) {

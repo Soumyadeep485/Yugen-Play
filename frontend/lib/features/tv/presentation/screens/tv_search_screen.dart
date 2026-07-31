@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
@@ -20,11 +18,12 @@ class TvSearchScreen extends ConsumerStatefulWidget {
 class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
   final SearchHistoryService _historyService = SearchHistoryService();
   String _searchQuery = "";
-  Timer? _debounceTimer;
 
-  final List<String> _alphabetKeys = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+  // A proper QWERTY layout for D-Pad navigation
+  final List<List<String>> _qwertyLayout = [
+    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
   ];
 
   @override
@@ -37,21 +36,13 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    super.dispose();
-  }
-
   void _onKeyPressed(String key) {
     setState(() => _searchQuery += key);
-    _triggerLiveSearch();
   }
 
   void _onBackspace() {
     if (_searchQuery.isNotEmpty) {
       setState(() => _searchQuery = _searchQuery.substring(0, _searchQuery.length - 1));
-      _triggerLiveSearch();
     }
   }
 
@@ -64,16 +55,14 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
     setState(() => _searchQuery += " ");
   }
 
-  void _triggerLiveSearch() {
-    if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-      if (_searchQuery.trim().isNotEmpty) {
-        _historyService.addSearch(_searchQuery.trim());
-        ref.read(searchProvider.notifier).setQuery(_searchQuery.trim());
-      } else {
-        ref.read(searchProvider.notifier).setQuery("");
-      }
-    });
+  void _performSearch() {
+    final query = _searchQuery.trim();
+    if (query.isNotEmpty) {
+      _historyService.addSearch(query);
+      ref.read(searchProvider.notifier).setQuery(query);
+    } else {
+      ref.read(searchProvider.notifier).setQuery("");
+    }
   }
 
   @override
@@ -84,20 +73,19 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0E13), 
       body: SafeArea(
-        // 🚀 CHANGED: Now using a CustomScrollView so the keyboard scrolls UP and away!
         child: CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
             // ================================================================
-            // TOP SECTION: Header, Keyboard, and Auto-Complete Chips
+            // TOP SECTION: Header & Structured QWERTY Keyboard
             // ================================================================
             SliverToBoxAdapter(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
                   
-                  // 1. M3 LARGE SEARCH HEADER
+                  // 1. SEARCH HEADER
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40.0),
                     child: Row(
@@ -127,50 +115,79 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 30),
 
-                  // 2. M3 SINGLE-ROW KEYBOARD
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
+                  // 2. PROPER QWERTY TV KEYBOARD
+                  Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _M3KeyPill(label: "123", width: 42, onTap: () {}),
-                        const SizedBox(width: 6),
-                        _M3KeyPill(label: "SPACE", width: 62, onTap: _onSpace),
-                        const SizedBox(width: 6),
-                        ..._alphabetKeys.map((key) => Padding(
-                          padding: const EdgeInsets.only(right: 4.0),
-                          child: _M3AlphaKey(label: key, onTap: () => _onKeyPressed(key)),
-                        )),
-                        const SizedBox(width: 2),
-                        _M3KeyPill(icon: Icons.backspace_rounded, width: 44, onTap: _onBackspace),
-                        const SizedBox(width: 6),
-                        _M3KeyPill(icon: Icons.close_rounded, width: 44, onTap: _onClear),
+                        // Row 1
+                        Row(
+                          children: [
+                            ..._qwertyLayout[0].map((key) => Padding(
+                              padding: const EdgeInsets.only(right: 6.0),
+                              child: _M3AlphaKey(label: key, onTap: () => _onKeyPressed(key)),
+                            )),
+                            const SizedBox(width: 8),
+                            _M3KeyPill(icon: Icons.backspace_rounded, width: 50, onTap: _onBackspace),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        
+                        // Row 2
+                        Row(
+                          children: [
+                            const SizedBox(width: 16),
+                            ..._qwertyLayout[1].map((key) => Padding(
+                              padding: const EdgeInsets.only(right: 6.0),
+                              child: _M3AlphaKey(label: key, onTap: () => _onKeyPressed(key)),
+                            )),
+                            const SizedBox(width: 8),
+                            _M3KeyPill(icon: Icons.close_rounded, width: 50, onTap: _onClear),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        
+                        // Row 3 (Bottom Actions)
+                        Row(
+                          children: [
+                            const SizedBox(width: 32),
+                            ..._qwertyLayout[2].map((key) => Padding(
+                              padding: const EdgeInsets.only(right: 6.0),
+                              child: _M3AlphaKey(label: key, onTap: () => _onKeyPressed(key)),
+                            )),
+                            const SizedBox(width: 8),
+                            _M3KeyPill(label: "SPACE", width: 80, onTap: _onSpace),
+                            const SizedBox(width: 8),
+                            
+                            _M3KeyPill(
+                              label: "SEARCH", 
+                              width: 100, 
+                              isPrimary: true,
+                              icon: Icons.search_rounded,
+                              onTap: _performSearch,
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
 
-                  const SizedBox(height: 16),
-
-                  // 3. SMART AUTO-COMPLETE CHIPS
-                  if (_searchQuery.isNotEmpty)
-                    _buildDynamicSuggestions(searchState.searchResults),
-
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
 
             // ================================================================
-            // BOTTOM SECTION: Results (Automatically pushes keyboard up on focus)
+            // BOTTOM SECTION: Results / History
             // ================================================================
             if (searchState.isLoading)
               const SliverFillRemaining(
                 child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
               )
-            else if (isQueryEmpty)
+            else if (isQueryEmpty || searchState.currentQuery.isEmpty)
               SliverToBoxAdapter(child: _buildRecentSearches())
             else if (searchState.searchResults.isEmpty)
               const SliverFillRemaining(
@@ -184,58 +201,6 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
     );
   }
 
-  // 🚀 NEW: Smart Auto-Complete Logic based on actual Anime Titles!
-  Widget _buildDynamicSuggestions(List<Anime> results) {
-    // Grab the top 4 search results to use as smart suggestions
-    List<Anime> topMatches = results.take(4).toList();
-
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 40.0),
-        physics: const BouncingScrollPhysics(),
-        children: [
-          _M3SuggestionChip(
-            prefix: 'Q',
-            text: '"$_searchQuery"',
-            isSearchQuery: true,
-            onTap: () {},
-          ),
-          if (topMatches.isNotEmpty) const SizedBox(width: 10),
-          
-          // Map real anime titles to the suggestion chips
-          ...topMatches.map((anime) {
-            final title = anime.title;
-            String lowerQuery = _searchQuery.toLowerCase();
-            String lowerTitle = title.toLowerCase();
-            
-            String prefix = "";
-            String suffix = title;
-
-            // Highlight the typed part of the word
-            if (lowerTitle.startsWith(lowerQuery)) {
-              prefix = title.substring(0, _searchQuery.length);
-              suffix = title.substring(_searchQuery.length);
-            }
-
-            return Padding(
-              padding: const EdgeInsets.only(right: 10.0),
-              child: _M3SuggestionChip(
-                prefix: prefix,
-                text: suffix,
-                onTap: () {
-                  setState(() => _searchQuery = title);
-                  _triggerLiveSearch();
-                },
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
   Widget _buildRecentSearches() {
     return ValueListenableBuilder(
       valueListenable: Hive.box<String>('search_history').listenable(),
@@ -244,9 +209,9 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
         if (history.isEmpty) {
           return const Center(
             child: Padding(
-              padding: EdgeInsets.only(top: 100.0),
+              padding: EdgeInsets.only(top: 80.0),
               child: Text(
-                "Type using the keyboard above to find anime...",
+                "Type and press SEARCH to find anime...",
                 style: TextStyle(color: Colors.white38, fontSize: 16),
               ),
             ),
@@ -276,7 +241,7 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
                   query: query,
                   onTap: () {
                     setState(() => _searchQuery = query);
-                    _triggerLiveSearch();
+                    _performSearch();
                   },
                 )).toList(),
               ),
@@ -287,79 +252,199 @@ class _TvSearchScreenState extends ConsumerState<TvSearchScreen> {
     );
   }
 
-  // 🚀 CHANGED: Converted the results section into Slivers for seamless scrolling
+  // 🚀 REPLACED: Unified Grid for AniList Cards
   List<Widget> _buildSliverSearchResults(List<Anime> results) {
-    final topResults = results.take(3).toList();
-    final remainingResults = results.skip(3).toList();
-
     return [
-      // Top Results Row
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Top Results", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 14),
-              SizedBox(
-                height: 110,
-                child: Row(
-                  children: topResults.map((anime) => Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 16.0),
-                      child: _M3TopResultCard(anime: anime),
-                    ),
-                  )).toList(),
-                ),
-              ),
-              const SizedBox(height: 28),
-            ],
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 40.0).copyWith(bottom: 60),
+        sliver: SliverGrid(
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2, // 2 Wide cards per row
+            crossAxisSpacing: 24,
+            mainAxisSpacing: 24,
+            mainAxisExtent: 220, // Forces strict card height
+          ),
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              return _TvAniListSearchCard(
+                anime: results[index],
+                onTap: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => TvAnimeDetailsScreen(anime: results[index])));
+                },
+              );
+            },
+            childCount: results.length,
           ),
         ),
       ),
-
-      // Anime Matches Header
-      if (remainingResults.isNotEmpty)
-        const SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 40.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text("Anime Matches", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                SizedBox(height: 14),
-              ],
-            ),
-          ),
-        ),
-
-      // Anime Matches Grid
-      if (remainingResults.isNotEmpty)
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 40.0).copyWith(bottom: 60),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 6,
-              childAspectRatio: 0.65,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 20,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                return _M3PosterCard(anime: remainingResults[index]);
-              },
-              childCount: remainingResults.length,
-            ),
-          ),
-        ),
     ];
   }
 }
 
 // ============================================================================
-// MATERIAL 3 LOW-RESOURCE TV KEYBOARD WIDGETS
+// WIDGETS
 // ============================================================================
+
+class _TvAniListSearchCard extends StatefulWidget {
+  final Anime anime;
+  final VoidCallback onTap;
+
+  const _TvAniListSearchCard({required this.anime, required this.onTap});
+
+  @override
+  State<_TvAniListSearchCard> createState() => _TvAniListSearchCardState();
+}
+
+class _TvAniListSearchCardState extends State<_TvAniListSearchCard> {
+  bool _isFocused = false;
+
+  String _cleanDescription(String? html) {
+    if (html == null) return 'No description available.';
+    return html.replaceAll(RegExp(r'<[^>]*>|&[a-zA-Z0-9]+;'), '').trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Fallbacks for formatting
+    final formatStr = widget.anime.format != null ? widget.anime.format!.replaceAll('_', ' ') : 'TV';
+    final epStr = widget.anime.episodes != null ? '${widget.anime.episodes} episodes' : '? episodes';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: widget.onTap,
+        onFocusChange: (hasFocus) => setState(() => _isFocused = hasFocus),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: const Color(0xFF151F2E), // AniList Dark Slate Background
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: _isFocused ? Colors.white : Colors.transparent,
+              width: _isFocused ? 2 : 1,
+            ),
+            boxShadow: _isFocused
+                ? [BoxShadow(color: Colors.white.withValues(alpha: 0.15), blurRadius: 15, spreadRadius: 2)]
+                : [],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Poster Image
+              ClipRRect(
+                borderRadius: const BorderRadius.horizontal(left: Radius.circular(10)),
+                child: Image.network(
+                  widget.anime.coverImage ?? '',
+                  width: 150,
+                  height: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 150,
+                    color: Colors.white10,
+                    child: const Icon(Icons.broken_image, color: Colors.white54),
+                  ),
+                ),
+              ),
+              // 2. Metadata
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title and Rating Row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.anime.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: _isFocused ? Colors.white : const Color(0xFF9FADBD),
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (widget.anime.rating != null) ...[
+                            const SizedBox(width: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.mood, color: Colors.greenAccent, size: 16),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${widget.anime.rating!.toInt()}%',
+                                  style: const TextStyle(
+                                    color: Colors.greenAccent, 
+                                    fontSize: 13, 
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      
+                      // Format & Episode Count
+                      Text(
+                        '$formatStr • $epStr',
+                        style: const TextStyle(color: Color(0xFF8BA0B2), fontSize: 12),
+                      ),
+                      const SizedBox(height: 10),
+                      
+                      // Description Block
+                      Expanded(
+                        child: Text(
+                          _cleanDescription(widget.anime.description),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Color(0xFF6A7685), fontSize: 12, height: 1.4),
+                        ),
+                      ),
+                      
+                      // Genre Pills
+                      if (widget.anime.genres != null && widget.anime.genres!.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: widget.anime.genres!.take(3).map((genre) {
+                              return Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _isFocused ? Colors.blueAccent : const Color(0xFF3DB4F2),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  genre.toLowerCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white, 
+                                    fontSize: 10, 
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        )
+                      ]
+                    ],
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _M3AlphaKey extends StatefulWidget {
   final String label;
@@ -381,16 +466,16 @@ class _M3AlphaKeyState extends State<_M3AlphaKey> {
       child: InkWell(
         onTap: widget.onTap,
         onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
-          width: 36,
-          height: 38,
+          width: 40,
+          height: 42,
           transform: Matrix4.diagonal3Values(_isFocused ? 1.15 : 1.0, _isFocused ? 1.15 : 1.0, 1.0),
           transformAlignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _isFocused ? Colors.white : Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(10),
+            color: _isFocused ? Colors.white : Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
             boxShadow: _isFocused
                 ? [BoxShadow(color: Colors.white.withValues(alpha: 0.4), blurRadius: 10, spreadRadius: 1)]
                 : [],
@@ -400,7 +485,7 @@ class _M3AlphaKeyState extends State<_M3AlphaKey> {
               widget.label,
               style: TextStyle(
                 color: _isFocused ? Colors.black : Colors.white70,
-                fontSize: 18,
+                fontSize: 20,
                 fontWeight: _isFocused ? FontWeight.w900 : FontWeight.w500,
               ),
             ),
@@ -416,8 +501,9 @@ class _M3KeyPill extends StatefulWidget {
   final IconData? icon;
   final double width;
   final VoidCallback onTap;
+  final bool isPrimary; 
 
-  const _M3KeyPill({this.label, this.icon, required this.width, required this.onTap});
+  const _M3KeyPill({this.label, this.icon, required this.width, required this.onTap, this.isPrimary = false});
 
   @override
   State<_M3KeyPill> createState() => _M3KeyPillState();
@@ -428,274 +514,47 @@ class _M3KeyPillState extends State<_M3KeyPill> {
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = widget.isPrimary ? AppColors.primary.withValues(alpha: 0.7) : Colors.white.withValues(alpha: 0.12);
+    final focusColor = widget.isPrimary ? AppColors.primary : Colors.white;
+    final textColor = widget.isPrimary ? Colors.white : Colors.white70;
+    final focusTextColor = widget.isPrimary ? Colors.white : Colors.black;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: widget.onTap,
         onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           width: widget.width,
-          height: 38,
+          height: 42,
           transform: Matrix4.diagonal3Values(_isFocused ? 1.1 : 1.0, _isFocused ? 1.1 : 1.0, 1.0),
           transformAlignment: Alignment.center,
           decoration: BoxDecoration(
-            color: _isFocused ? Colors.white : Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+            color: _isFocused ? focusColor : baseColor,
+            borderRadius: BorderRadius.circular(8),
             boxShadow: _isFocused
-                ? [BoxShadow(color: Colors.white.withValues(alpha: 0.4), blurRadius: 10)]
+                ? [BoxShadow(color: focusColor.withValues(alpha: 0.5), blurRadius: 10)]
                 : [],
           ),
           child: Center(
-            child: widget.icon != null
-                ? Icon(widget.icon, color: _isFocused ? Colors.black : Colors.white, size: 18)
-                : Text(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (widget.icon != null)
+                  Icon(widget.icon, color: _isFocused ? focusTextColor : textColor, size: 18),
+                if (widget.icon != null && widget.label != null)
+                  const SizedBox(width: 4),
+                if (widget.label != null)
+                  Text(
                     widget.label!,
                     style: TextStyle(
-                      color: _isFocused ? Colors.black : Colors.white70,
-                      fontSize: 11,
+                      color: _isFocused ? focusTextColor : textColor,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _M3SuggestionChip extends StatefulWidget {
-  final String prefix;
-  final String text;
-  final bool isSearchQuery;
-  final VoidCallback onTap;
-
-  const _M3SuggestionChip({
-    required this.prefix,
-    required this.text,
-    this.isSearchQuery = false,
-    required this.onTap,
-  });
-
-  @override
-  State<_M3SuggestionChip> createState() => _M3SuggestionChipState();
-}
-
-class _M3SuggestionChipState extends State<_M3SuggestionChip> {
-  bool _isFocused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: widget.onTap,
-        onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: _isFocused
-                ? Colors.white
-                : (widget.isSearchQuery ? AppColors.primary.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.08)),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: _isFocused ? Colors.white : (widget.isSearchQuery ? AppColors.primary : Colors.white10),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.isSearchQuery)
-                Icon(Icons.search_rounded, size: 16, color: _isFocused ? Colors.black : AppColors.primary),
-              if (widget.isSearchQuery) const SizedBox(width: 6),
-              RichText(
-                text: TextSpan(
-                  children: [
-                    TextSpan(
-                      text: widget.prefix,
-                      style: TextStyle(
-                        color: _isFocused ? Colors.black : Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    TextSpan(
-                      text: widget.text,
-                      style: TextStyle(
-                        color: _isFocused ? Colors.black54 : Colors.white54,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _M3TopResultCard extends StatefulWidget {
-  final Anime anime;
-  const _M3TopResultCard({required this.anime});
-
-  @override
-  State<_M3TopResultCard> createState() => _M3TopResultCardState();
-}
-
-class _M3TopResultCardState extends State<_M3TopResultCard> {
-  bool _isFocused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final poster = widget.anime.bannerImage ?? widget.anime.coverImage ?? '';
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => TvAnimeDetailsScreen(anime: widget.anime)));
-        },
-        onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          transform: Matrix4.diagonal3Values(_isFocused ? 1.04 : 1.0, _isFocused ? 1.04 : 1.0, 1.0),
-          transformAlignment: Alignment.center,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: _isFocused ? Colors.white.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: _isFocused ? Colors.white : Colors.white10,
-              width: _isFocused ? 2 : 1,
-            ),
-            boxShadow: _isFocused
-                ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.5), blurRadius: 16)]
-                : [],
-          ),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.network(
-                    poster,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      widget.anime.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.anime.status ?? "Anime Series",
-                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _M3PosterCard extends StatefulWidget {
-  final Anime anime;
-  const _M3PosterCard({required this.anime});
-
-  @override
-  State<_M3PosterCard> createState() => _M3PosterCardState();
-}
-
-class _M3PosterCardState extends State<_M3PosterCard> {
-  bool _isFocused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final score = widget.anime.rating != null ? "★ ${widget.anime.rating!.toStringAsFixed(1)}" : null;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => TvAnimeDetailsScreen(anime: widget.anime)));
-        },
-        onFocusChange: (focused) => setState(() => _isFocused = focused),
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutQuart,
-          transform: Matrix4.diagonal3Values(_isFocused ? 1.08 : 1.0, _isFocused ? 1.08 : 1.0, 1.0),
-          transformAlignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _isFocused ? Colors.white : Colors.transparent, width: _isFocused ? 3 : 0),
-            boxShadow: _isFocused
-                ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.8), blurRadius: 20, spreadRadius: 4)]
-                : [],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(9),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.network(
-                  widget.anime.coverImage ?? '',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.9)],
-                      stops: const [0.5, 1.0],
-                    ),
-                  ),
-                ),
-                if (score != null)
-                  Positioned(
-                    top: 8, left: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.8),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.white24, width: 1),
-                      ),
-                      child: Text(score, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                Positioned(
-                  bottom: 10, left: 10, right: 10,
-                  child: Text(
-                    widget.anime.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: _isFocused ? Colors.white : Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ),
               ],
             ),
           ),

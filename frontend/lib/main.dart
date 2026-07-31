@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // 🚀 REQUIRED FOR D-PAD MAPPING
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:frontend/core/utils/device_type.dart';
 import 'package:frontend/features/player/services/extension_manager.dart';
 import 'package:media_kit/media_kit.dart';
 import 'features/main/presentation/screens/root_screen.dart';
 import 'features/tv/presentation/screens/tv_root_screen.dart';
-import 'app/yugen_play_app.dart';
 import 'core/storage/hive_service.dart';
 import 'service_locator.dart';
 import 'src/rust/frb_generated.dart';
@@ -32,16 +32,29 @@ void main() async {
   });
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class YugenPlayApp extends StatelessWidget {
+  const YugenPlayApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Yugen Play',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark(),
-      home: DeviceType.isTv ? const TvRootScreen() : const RootScreen(),
+    // 🚀 THE GLOBAL D-PAD WRAPPER
+    // This intercepts weird TV remote keys and forces them to act as a physical screen tap
+    return Shortcuts(
+      // 🚀 FIX: Changed to ShortcutActivator and SingleActivator
+      shortcuts: <ShortcutActivator, Intent>{
+        ...WidgetsApp.defaultShortcuts,
+        const SingleActivator(LogicalKeyboardKey.select): const ActivateIntent(), // MediaTek / Skyworth Fix
+        const SingleActivator(LogicalKeyboardKey.enter): const ActivateIntent(), // Standard Android TV
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): const ActivateIntent(), // Generic Remotes
+        const SingleActivator(LogicalKeyboardKey.gameButtonA): const ActivateIntent(), // Bluetooth Controllers
+      },
+      child: MaterialApp(
+        // ... rest of your code ...
+        title: 'Yugen Play',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: DeviceType.isTv ? const TvRootScreen() : const RootScreen(),
+      ),
     );
   }
 }

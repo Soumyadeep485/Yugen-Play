@@ -1,5 +1,6 @@
 class Anime {
   final String id;
+  final int? idMal;
   final String title;
   final String? coverImage;
   final String? bannerImage;
@@ -7,9 +8,14 @@ class Anime {
   final int? episodes;
   final String? status;
   final String? description;
+  final List<String>? synonyms;
+  // 🚀 Added missing AniList fields
+  final List<String>? genres;
+  final String? format; 
 
   const Anime({
     required this.id,
+    this.idMal,
     required this.title,
     this.coverImage,
     this.bannerImage,
@@ -17,6 +23,9 @@ class Anime {
     this.episodes,
     this.status,
     this.description,
+    this.synonyms,
+    this.genres,
+    this.format,
   });
 
   factory Anime.fromJson(Map<String, dynamic> json) {
@@ -30,8 +39,19 @@ class Anime {
 
     final coverMap = json['coverImage'] as Map<String, dynamic>?;
 
+    List<String>? parsedSynonyms;
+    if (json['synonyms'] != null && json['synonyms'] is List) {
+      parsedSynonyms = (json['synonyms'] as List).map((e) => e.toString()).toList();
+    }
+
+    List<String>? parsedGenres;
+    if (json['genres'] != null && json['genres'] is List) {
+      parsedGenres = (json['genres'] as List).map((e) => e.toString()).toList();
+    }
+
     return Anime(
       id: json['id']?.toString() ?? '',
+      idMal: json['idMal'] as int?,
       title: titleString,
       coverImage:
           coverMap?['large'] ??
@@ -42,6 +62,9 @@ class Anime {
       episodes: json['episodes'] as int?,
       status: json['status']?.toString(),
       description: json['description']?.toString(),
+      synonyms: parsedSynonyms,
+      genres: parsedGenres,
+      format: json['format']?.toString(),
     );
   }
 }

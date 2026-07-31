@@ -75,11 +75,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
 
     _player.setSubtitleTrack(mk.SubtitleTrack.no());
 
-    // 🚀 FIX: The Ultimate Smart Resume Logic
-    // Instead of guessing network speeds or relying on the 'playing' flag,
-    // we wait for the player's actual 'position' to tick past 500ms.
-    // This physically guarantees the HLS manifest is parsed, the decoder is rendering frames, 
-    // and the stream is fully ready to accept a seek command.
+    // Smart Resume Logic
     if (widget.startPosition != null && widget.startPosition! > const Duration(seconds: 5)) {
       bool hasSeeked = false;
       late StreamSubscription<Duration> posSub;
@@ -88,7 +84,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
         if (!hasSeeked && pos.inMilliseconds > 500 && _player.state.duration.inMilliseconds > 0) {
           hasSeeked = true;
           _player.seek(widget.startPosition!);
-          posSub.cancel(); // Fire once and cleanly kill the listener
+          posSub.cancel(); 
         }
       });
       _subscriptions.add(posSub);
@@ -204,63 +200,67 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true, 
       builder: (context) {
-        return Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.8,
-          ),
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: Color(0xFF14141B),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Subtitles",
-                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              
-              Flexible(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _TvSubtitleOptionTile(
-                        title: "Off",
-                        isSelected: !_isSubtitlesEnabled,
-                        onTap: () {
-                          _toggleSubtitles(false);
-                          Navigator.pop(context);
-                        },
-                      ),
-                      ...availableSubtitles.map((sub) {
-                        final subJson = sub.toJson();
-                        final subUrl = subJson['url']?.toString() ?? subJson['file']?.toString() ?? '';
-                        final subLabel = subJson['label']?.toString() ?? 'English';
-                        
-                        final selectedJson = _selectedSubtitle?.toJson();
-                        final selectedUrl = selectedJson?['url']?.toString() ?? selectedJson?['file']?.toString() ?? '';
-                        
-                        final isSelected = _isSubtitlesEnabled && selectedUrl == subUrl;
-                        
-                        return _TvSubtitleOptionTile(
-                          title: subLabel.isNotEmpty ? subLabel : "English",
-                          isSelected: isSelected,
+        // 🚀 Wrapped Modal in FocusScope to trap D-pad inside
+        return FocusScope(
+          autofocus: true,
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+            ),
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Color(0xFF14141B),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Subtitles",
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                
+                Flexible(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _TvSubtitleOptionTile(
+                          title: "Off",
+                          isSelected: !_isSubtitlesEnabled,
                           onTap: () {
-                            _toggleSubtitles(true, sub);
+                            _toggleSubtitles(false);
                             Navigator.pop(context);
                           },
-                        );
-                      }),
-                    ],
+                        ),
+                        ...availableSubtitles.map((sub) {
+                          final subJson = sub.toJson();
+                          final subUrl = subJson['url']?.toString() ?? subJson['file']?.toString() ?? '';
+                          final subLabel = subJson['label']?.toString() ?? 'English';
+                          
+                          final selectedJson = _selectedSubtitle?.toJson();
+                          final selectedUrl = selectedJson?['url']?.toString() ?? selectedJson?['file']?.toString() ?? '';
+                          
+                          final isSelected = _isSubtitlesEnabled && selectedUrl == subUrl;
+                          
+                          return _TvSubtitleOptionTile(
+                            title: subLabel.isNotEmpty ? subLabel : "English",
+                            isSelected: isSelected,
+                            onTap: () {
+                              _toggleSubtitles(true, sub);
+                              Navigator.pop(context);
+                            },
+                          );
+                        }),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -333,6 +333,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
           if (_isBuffering)
             const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 3)),
 
+          // 🚀 BACKGROUND FOCUS TRAP: Wakes UI on D-Pad Up/Down
           Positioned.fill(
             child: Focus(
               focusNode: _backgroundFocusNode,
@@ -340,6 +341,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
               canRequestFocus: !_showControls, 
               onKeyEvent: (node, event) {
                 if (!_showControls && event is KeyDownEvent) {
+                  // Ignore system volume/back keys
                   if (event.logicalKey == LogicalKeyboardKey.audioVolumeUp || 
                       event.logicalKey == LogicalKeyboardKey.audioVolumeDown || 
                       event.logicalKey == LogicalKeyboardKey.audioVolumeMute ||
@@ -348,16 +350,17 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                     return KeyEventResult.ignored;
                   }
 
+                  // Background Seeking
                   if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
                     _seekRelative(-10);
                     return KeyEventResult.handled;
                   }
-                  
                   if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
                     _seekRelative(10);
                     return KeyEventResult.handled;
                   }
 
+                  // Background Pause
                   if (event.logicalKey == LogicalKeyboardKey.mediaPlayPause ||
                       event.logicalKey == LogicalKeyboardKey.mediaPlay ||
                       event.logicalKey == LogicalKeyboardKey.mediaPause) {
@@ -368,6 +371,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                     return KeyEventResult.handled;
                   }
                   
+                  // 🚀 Wake up controls on Up/Down or Select
                   setState(() => _showControls = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) => _playPauseFocusNode.requestFocus());
                   _resetControlsTimer();
@@ -391,245 +395,248 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
 
           if (_showControls)
             Positioned.fill(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24).copyWith(bottom: 60),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
+              // 🚀 FOREGROUND FOCUS TRAP: Locks D-pad inside the controls
+              child: FocusScope(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24).copyWith(bottom: 60),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          _TvPlayerControlButton(
+                            icon: Icons.arrow_back_rounded,
+                            onTap: () => Navigator.pop(context),
+                            autofocus: false,
+                            onFocus: _resetControlsTimer,
+                          ),
+                          const SizedBox(width: 20),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  animeTitle,
+                                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  epTitle,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              widget.quality.toUpperCase(),
+                              style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _TvPlayerControlButton(
-                          icon: Icons.arrow_back_rounded,
-                          onTap: () => Navigator.pop(context),
-                          autofocus: false,
-                          onFocus: _resetControlsTimer,
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                animeTitle,
-                                style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                epTitle,
-                                style: const TextStyle(color: Colors.white70, fontSize: 14),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            widget.quality.toUpperCase(),
-                            style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _TvPlayerControlButton(
-                        icon: Icons.skip_previous_rounded,
-                        onTap: () {
-                          _resetControlsTimer();
-                          if (widget.onPreviousEpisode != null) widget.onPreviousEpisode!();
-                        },
-                        autofocus: false,
-                        onFocus: _resetControlsTimer,
-                        size: 32,
-                        padding: 16,
-                      ),
-                      const SizedBox(width: 24),
-                      _TvPlayerControlButton(
-                        icon: Icons.replay_10_rounded,
-                        onTap: () => _seekRelative(-10),
-                        autofocus: false,
-                        onFocus: _resetControlsTimer,
-                        size: 32,
-                        padding: 16,
-                      ),
-                      const SizedBox(width: 24),
-                      _TvPlayerControlButton(
-                        icon: _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        onTap: () {
-                          _player.playOrPause();
-                          _resetControlsTimer();
-                        },
-                        autofocus: true,
-                        focusNode: _playPauseFocusNode,
-                        onFocus: _resetControlsTimer,
-                        size: 56,
-                        padding: 24,
-                      ),
-                      const SizedBox(width: 24),
-                      _TvPlayerControlButton(
-                        icon: Icons.forward_10_rounded,
-                        onTap: () => _seekRelative(10),
-                        autofocus: false,
-                        onFocus: _resetControlsTimer,
-                        size: 32,
-                        padding: 16,
-                      ),
-                      const SizedBox(width: 24),
-                      _TvPlayerControlButton(
-                        icon: Icons.skip_next_rounded,
-                        onTap: () async {
-                          _resetControlsTimer();
-                          if (widget.onNextEpisode != null && !_isTransitioningToNext) {
-                            setState(() => _isTransitioningToNext = true);
-                            _player.pause();
-                            final success = await widget.onNextEpisode!();
-                            if (mounted && !success) setState(() => _isTransitioningToNext = false);
-                          }
-                        },
-                        autofocus: false,
-                        onFocus: _resetControlsTimer,
-                        size: 32,
-                        padding: 16,
-                      ),
-                    ],
-                  ),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24).copyWith(top: 60),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Text(_formatDuration(_position), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                        const SizedBox(width: 20),
-                        
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final trackWidth = constraints.maxWidth;
-                              final maxDur = _duration.inMilliseconds > 0 ? _duration.inMilliseconds.toDouble() : 1.0;
-                              final posProgress = (_position.inMilliseconds / maxDur).clamp(0.0, 1.0);
-                              final bufProgress = (_buffer.inMilliseconds / maxDur).clamp(0.0, 1.0);
-
-                              double getLeft(Duration start) => (start.inMilliseconds / maxDur).clamp(0.0, 1.0) * trackWidth;
-                              double getWidth(Duration start, Duration end) => ((end.inMilliseconds - start.inMilliseconds) / maxDur).clamp(0.0, 1.0) * trackWidth;
-
-                              return Container(
-                                height: 10, 
-                                decoration: BoxDecoration(
-                                  color: Colors.white12, 
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  alignment: Alignment.centerLeft,
-                                  children: [
-                                    FractionallySizedBox(
-                                      widthFactor: bufProgress,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.4),
-                                          borderRadius: BorderRadius.circular(5),
-                                        ),
-                                      ),
-                                    ),
-                                    if (hasIntro)
-                                      Positioned(
-                                        left: getLeft(introStart),
-                                        width: getWidth(introStart, introEnd),
-                                        height: 10,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.amber.withValues(alpha: 0.85),
-                                            borderRadius: BorderRadius.circular(5),
-                                          ),
-                                        ),
-                                      ),
-                                    if (hasOutro)
-                                      Positioned(
-                                        left: getLeft(outroStart),
-                                        width: getWidth(outroStart, outroEnd),
-                                        height: 10,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.amber.withValues(alpha: 0.85),
-                                            borderRadius: BorderRadius.circular(5),
-                                          ),
-                                        ),
-                                      ),
-                                    FractionallySizedBox(
-                                      widthFactor: posProgress,
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primary,
-                                          borderRadius: BorderRadius.circular(5),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        
-                        const SizedBox(width: 20),
-                        Text(_formatDuration(_duration), style: const TextStyle(color: Colors.white70, fontSize: 14)),
-                        const SizedBox(width: 32),
-
-                        _TvPlayerControlButton(
-                          icon: _isSubtitlesEnabled ? Icons.subtitles_rounded : Icons.subtitles_off_rounded,
-                          onTap: _showSubtitleSelectorModal,
-                          autofocus: false,
-                          onFocus: _resetControlsTimer,
-                          size: 24,
-                          padding: 12,
-                        ),
-                        const SizedBox(width: 16),
-
-                        _TvPlayerTextButton(
-                          label: skipText,
-                          onFocus: _resetControlsTimer,
+                          icon: Icons.skip_previous_rounded,
                           onTap: () {
-                            if (inIntro) {
-                              _player.seek(introEnd);
-                              _resetControlsTimer();
-                            } else if (inOutro) {
-                              _player.seek(outroEnd);
-                              _resetControlsTimer();
-                            } else {
-                              _seekRelative(85); 
+                            _resetControlsTimer();
+                            if (widget.onPreviousEpisode != null) widget.onPreviousEpisode!();
+                          },
+                          autofocus: false,
+                          onFocus: _resetControlsTimer,
+                          size: 32,
+                          padding: 16,
+                        ),
+                        const SizedBox(width: 24),
+                        _TvPlayerControlButton(
+                          icon: Icons.replay_10_rounded,
+                          onTap: () => _seekRelative(-10),
+                          autofocus: false,
+                          onFocus: _resetControlsTimer,
+                          size: 32,
+                          padding: 16,
+                        ),
+                        const SizedBox(width: 24),
+                        _TvPlayerControlButton(
+                          icon: _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          onTap: () {
+                            _player.playOrPause();
+                            _resetControlsTimer();
+                          },
+                          autofocus: true, // 🚀 Auto-focuses Play/Pause on wake
+                          focusNode: _playPauseFocusNode,
+                          onFocus: _resetControlsTimer,
+                          size: 56,
+                          padding: 24,
+                        ),
+                        const SizedBox(width: 24),
+                        _TvPlayerControlButton(
+                          icon: Icons.forward_10_rounded,
+                          onTap: () => _seekRelative(10),
+                          autofocus: false,
+                          onFocus: _resetControlsTimer,
+                          size: 32,
+                          padding: 16,
+                        ),
+                        const SizedBox(width: 24),
+                        _TvPlayerControlButton(
+                          icon: Icons.skip_next_rounded,
+                          onTap: () async {
+                            _resetControlsTimer();
+                            if (widget.onNextEpisode != null && !_isTransitioningToNext) {
+                              setState(() => _isTransitioningToNext = true);
+                              _player.pause();
+                              final success = await widget.onNextEpisode!();
+                              if (mounted && !success) setState(() => _isTransitioningToNext = false);
                             }
                           },
+                          autofocus: false,
+                          onFocus: _resetControlsTimer,
+                          size: 32,
+                          padding: 16,
                         ),
                       ],
                     ),
-                  ),
-                ],
+
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24).copyWith(top: 60),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Colors.black.withValues(alpha: 0.9), Colors.transparent],
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Text(_formatDuration(_position), style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 20),
+                          
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final trackWidth = constraints.maxWidth;
+                                final maxDur = _duration.inMilliseconds > 0 ? _duration.inMilliseconds.toDouble() : 1.0;
+                                final posProgress = (_position.inMilliseconds / maxDur).clamp(0.0, 1.0);
+                                final bufProgress = (_buffer.inMilliseconds / maxDur).clamp(0.0, 1.0);
+
+                                double getLeft(Duration start) => (start.inMilliseconds / maxDur).clamp(0.0, 1.0) * trackWidth;
+                                double getWidth(Duration start, Duration end) => ((end.inMilliseconds - start.inMilliseconds) / maxDur).clamp(0.0, 1.0) * trackWidth;
+
+                                return Container(
+                                  height: 10, 
+                                  decoration: BoxDecoration(
+                                    color: Colors.white12, 
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    alignment: Alignment.centerLeft,
+                                    children: [
+                                      FractionallySizedBox(
+                                        widthFactor: bufProgress,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(alpha: 0.4),
+                                            borderRadius: BorderRadius.circular(5),
+                                          ),
+                                        ),
+                                      ),
+                                      if (hasIntro)
+                                        Positioned(
+                                          left: getLeft(introStart),
+                                          width: getWidth(introStart, introEnd),
+                                          height: 10,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.withValues(alpha: 0.85),
+                                              borderRadius: BorderRadius.circular(5),
+                                            ),
+                                          ),
+                                        ),
+                                      if (hasOutro)
+                                        Positioned(
+                                          left: getLeft(outroStart),
+                                          width: getWidth(outroStart, outroEnd),
+                                          height: 10,
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.withValues(alpha: 0.85),
+                                              borderRadius: BorderRadius.circular(5),
+                                            ),
+                                          ),
+                                        ),
+                                      FractionallySizedBox(
+                                        widthFactor: posProgress,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            borderRadius: BorderRadius.circular(5),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          
+                          const SizedBox(width: 20),
+                          Text(_formatDuration(_duration), style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                          const SizedBox(width: 32),
+
+                          _TvPlayerControlButton(
+                            icon: _isSubtitlesEnabled ? Icons.subtitles_rounded : Icons.subtitles_off_rounded,
+                            onTap: _showSubtitleSelectorModal,
+                            autofocus: false,
+                            onFocus: _resetControlsTimer,
+                            size: 24,
+                            padding: 12,
+                          ),
+                          const SizedBox(width: 16),
+
+                          _TvPlayerTextButton(
+                            label: skipText,
+                            onFocus: _resetControlsTimer,
+                            onTap: () {
+                              if (inIntro) {
+                                _player.seek(introEnd);
+                                _resetControlsTimer();
+                              } else if (inOutro) {
+                                _player.seek(outroEnd);
+                                _resetControlsTimer();
+                              } else {
+                                _seekRelative(85); 
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
@@ -781,6 +788,7 @@ class _TvSubtitleOptionTileState extends State<_TvSubtitleOptionTile> {
       color: Colors.transparent,
       child: InkWell(
         onTap: widget.onTap,
+        autofocus: widget.isSelected, // 🚀 Wakes up with the currently active subtitle pre-focused!
         onFocusChange: (focused) => setState(() => _isFocused = focused),
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(

@@ -37,7 +37,7 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
   }
 
   // ============================================================================
-  // UPDATE CHECKER LOGIC (Ported from Mobile)
+  // UPDATE CHECKER LOGIC
   // ============================================================================
   Future<void> _checkForUpdates() async {
     try {
@@ -70,7 +70,7 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
           showDialog(
             context: context,
             barrierDismissible: false, 
-            builder: (context) => TvUpdateDialog( // 🚀 Uses the TV-optimized dialog
+            builder: (context) => TvUpdateDialog(
               version: latestVersion, 
               releaseNotes: releaseNotes,
               downloadUrl: downloadUrl!,
@@ -158,6 +158,7 @@ class _TvHeroBanner extends StatefulWidget {
 class _TvHeroBannerState extends State<_TvHeroBanner> {
   int _currentIndex = 0;
   Timer? _timer;
+  bool _isPaused = false; // 🚀 Pauses banner rotation when focused
 
   @override
   void initState() {
@@ -168,7 +169,7 @@ class _TvHeroBannerState extends State<_TvHeroBanner> {
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (mounted && widget.animeList.isNotEmpty) {
+      if (mounted && widget.animeList.isNotEmpty && !_isPaused) {
         setState(() {
           _currentIndex = (_currentIndex + 1) % widget.animeList.length;
         });
@@ -243,7 +244,12 @@ class _TvHeroBannerState extends State<_TvHeroBanner> {
                           style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 24),
-                        _TvWatchNowButton(anime: anime),
+                        _TvWatchNowButton(
+                          anime: anime,
+                          onFocusChange: (focused) {
+                            setState(() => _isPaused = focused);
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -307,7 +313,9 @@ class _TvHeroBannerState extends State<_TvHeroBanner> {
 
 class _TvWatchNowButton extends StatefulWidget {
   final Anime anime;
-  const _TvWatchNowButton({required this.anime});
+  final ValueChanged<bool>? onFocusChange;
+
+  const _TvWatchNowButton({required this.anime, this.onFocusChange});
 
   @override
   State<_TvWatchNowButton> createState() => _TvWatchNowButtonState();
@@ -315,6 +323,21 @@ class _TvWatchNowButton extends StatefulWidget {
 
 class _TvWatchNowButtonState extends State<_TvWatchNowButton> {
   bool _isFocused = false;
+
+  void _handleFocusChange(bool focused) {
+    setState(() => _isFocused = focused);
+    widget.onFocusChange?.call(focused);
+    
+    // 🚀 Auto-scroll viewport into view when focused
+    if (focused && mounted) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +347,7 @@ class _TvWatchNowButtonState extends State<_TvWatchNowButton> {
         onTap: () {
           Navigator.push(context, MaterialPageRoute(builder: (_) => TvAnimeDetailsScreen(anime: widget.anime)));
         },
-        onFocusChange: (focused) => setState(() => _isFocused = focused),
+        onFocusChange: _handleFocusChange,
         borderRadius: BorderRadius.circular(24),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -453,7 +476,6 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
       MaterialPageRoute(
         builder: (_) => TvPlayerScreen(
           title: '$animeTitle - Episode $nextEpNum',
-          // 🚀 FIXED: Removed the ! operators that caused linter warnings
           quality: selectedStream!.quality,
           streamUrl: selectedStream.url, 
           playerController: playerController,
@@ -614,6 +636,19 @@ class _TvContinueWatchingCard extends StatefulWidget {
 class _TvContinueWatchingCardState extends State<_TvContinueWatchingCard> {
   bool _isFocused = false;
 
+  void _handleFocusChange(bool focused) {
+    setState(() => _isFocused = focused);
+    // 🚀 Auto-scroll horizontally to keep focused item centered
+    if (focused && mounted) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = widget.item['animeTitle'] ?? 'Unknown';
@@ -629,7 +664,7 @@ class _TvContinueWatchingCardState extends State<_TvContinueWatchingCard> {
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onTap,
-          onFocusChange: (focused) => setState(() => _isFocused = focused),
+          onFocusChange: _handleFocusChange,
           borderRadius: BorderRadius.circular(12),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
@@ -743,6 +778,19 @@ class _TvAnimeCard extends StatefulWidget {
 class _TvAnimeCardState extends State<_TvAnimeCard> {
   bool _isFocused = false;
 
+  void _handleFocusChange(bool focused) {
+    setState(() => _isFocused = focused);
+    // 🚀 Auto-scroll horizontally to keep focused poster centered
+    if (focused && mounted) {
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final score = widget.anime.rating != null ? "★ ${widget.anime.rating!.toStringAsFixed(1)}" : null;
@@ -755,7 +803,7 @@ class _TvAnimeCardState extends State<_TvAnimeCard> {
           onTap: () {
             Navigator.push(context, MaterialPageRoute(builder: (_) => TvAnimeDetailsScreen(anime: widget.anime)));
           },
-          onFocusChange: (focused) => setState(() => _isFocused = focused),
+          onFocusChange: _handleFocusChange,
           borderRadius: BorderRadius.circular(12),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 250),
