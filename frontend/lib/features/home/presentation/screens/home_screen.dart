@@ -19,9 +19,8 @@ import '../widgets/home_app_bar.dart';
 import '../../../../service_locator.dart';
 import '../../../player/controllers/player_controller.dart';
 import '../../../player/models/episode.dart';
-import '../../../player/models/stream_link.dart';
 import '../../../player/presentation/screens/glassy_player_screen.dart';
-import '../../../player/presentation/widgets/stream_quality_bottom_sheet.dart';
+import '../../../player/presentation/widgets/stream_loading_dialog.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -33,22 +32,19 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _ambientImageUrl;
 
-@override
-void initState() {
-  super.initState();
-  // FIX: Wait for the initial frame to draw BEFORE checking for updates
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (mounted) {
-      _checkForUpdates();
-    }
-  });
-}
-  // Method 1: The API Fetcher
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _checkForUpdates();
+      }
+    });
+  }
+
   Future<void> _checkForUpdates() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      
-      // 1. Sanitize the app's current version just in case
       final currentVersion = packageInfo.version.replaceAll(RegExp(r'[^0-9.]'), '');
 
       final dio = Dio();
@@ -56,9 +52,6 @@ void initState() {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        
-        // 2. BULLETPROOF PARSING: Strips all letters, dashes, and spaces.
-        // Transforms "v1.2.0-beta" or "Release 1.2.0" into a cleanly parsed "1.2.0"
         final String latestVersion = data['tag_name'].toString().replaceAll(RegExp(r'[^0-9.]'), '');
         final String releaseNotes = data['body'] ?? "Minor bug fixes and performance improvements.";
         
@@ -74,14 +67,13 @@ void initState() {
           }
         }
 
-        // 3. Compare the sanitized versions
         if (downloadUrl != null && _isNewerVersion(currentVersion, latestVersion)) {
           if (!mounted) return;
           showDialog(
             context: context,
             barrierDismissible: false, 
             builder: (context) => GlassyUpdateDialog(
-              version: latestVersion, // Shows the clean version number in the UI
+              version: latestVersion,
               releaseNotes: releaseNotes,
               downloadUrl: downloadUrl!,
             ),
@@ -93,7 +85,6 @@ void initState() {
     }
   }
 
-  // Method 2: The Version Comparator (Checks if 1.0.1 is bigger than 1.0.0)
   bool _isNewerVersion(String current, String latest) {
     final currParts = current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
     final latestParts = latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
@@ -112,7 +103,7 @@ void initState() {
     final homeState = ref.watch(homeProvider);
 
     return Scaffold(
-      backgroundColor: Colors.black, // True black foundation
+      backgroundColor: Colors.black,
       extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: HomeAppBar(
@@ -127,16 +118,12 @@ void initState() {
       ),
       body: Stack(
         children: [
-          // ==========================================
-          // 1. DYNAMIC IMAGE (Pre-Blurred)
-          // ==========================================
           Positioned.fill(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 1000),
               child: _ambientImageUrl != null && _ambientImageUrl!.isNotEmpty
                   ? ImageFiltered(
                       key: ValueKey<String>(_ambientImageUrl!),
-                      // Lowered blur slightly so the rendering engine doesn't choke
                       imageFilter: ImageFilter.blur(sigmaX: 25, sigmaY: 25), 
                       child: Container(
                         decoration: BoxDecoration(
@@ -154,9 +141,6 @@ void initState() {
             ),
           ),
 
-          // ==========================================
-          // 2. THE SHADOW GRADIENT OVERLAY
-          // ==========================================
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
@@ -164,11 +148,8 @@ void initState() {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    // 🛑 40% black at the top lets the bright colors shine through
                     Colors.black.withValues(alpha: 0.4), 
-                    // 🛑 80% black in the middle to start hiding the image behind the lists
                     Colors.black.withValues(alpha: 0.8), 
-                    // 🛑 Pure black at the bottom for maximum readability
                     Colors.black, 
                   ],
                   stops: const [0.0, 0.4, 0.8],
@@ -177,9 +158,6 @@ void initState() {
             ),
           ),
 
-          // ==========================================
-          // 3. FOREGROUND CONTENT
-          // ==========================================
           SafeArea(
             bottom: false,
             child: homeState.isLoading
@@ -193,7 +171,6 @@ void initState() {
                     child: ListView(
                       physics: const BouncingScrollPhysics(),
                       children: [
-                        // WELCOME TEXT
                         Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20.0,
@@ -232,12 +209,10 @@ void initState() {
 
                         const SizedBox(height: 10),
 
-                        // AUTO-SCROLLING BLURRED BANNER
                         HeroBanner(
                           animeList: homeState.data.popular.take(6).toList(),
                           onImageChanged: (newImageUrl) {
                             if (mounted && _ambientImageUrl != newImageUrl) {
-                              // 🛑 Wrapped in microtask so it doesn't crash the build phase
                               Future.microtask(() {
                                 if (mounted) {
                                   setState(() {
@@ -253,7 +228,6 @@ void initState() {
 
                         const ContinueWatchingSection(),
 
-                        // POPULAR ANIMES SECTION
                         AnimeSection(
                           title: "Popular Animes",
                           animeList: homeState.data.popular,
@@ -285,7 +259,6 @@ void initState() {
 
                         const SizedBox(height: 16),
 
-                        // NEW RELEASES SECTION
                         AnimeSection(
                           title: "New Releases",
                           animeList: homeState.data.seasonal,
@@ -326,9 +299,6 @@ void initState() {
   }
 }
 
-// ============================================================================
-// CONTINUE WATCHING WIDGET (REPAIRED TO BE REACTIVE)
-// ============================================================================
 class ContinueWatchingSection extends StatefulWidget {
   const ContinueWatchingSection({super.key});
 
@@ -348,269 +318,118 @@ class _ContinueWatchingSectionState extends State<ContinueWatchingSection> {
   }
 
   Future<void> _resumeEpisode(BuildContext context, Map<String, dynamic> item) async {
-    final playerController = locator<PlayerController>();
-
-    // Safely extract all required database fields
     final animeId = item['animeId'].toString();
     final title = item['animeTitle']?.toString() ?? 'Unknown';
     final epNum = item['episodeNumber'] as int? ?? 1;
     final poster = item['posterUrl']?.toString() ?? '';
     final episodeId = item['episodeId']?.toString() ?? '$title-ep-$epNum';
     final savedPosition = Duration(milliseconds: int.tryParse(item['positionMs'].toString()) ?? 0);
-    // 👇 1. Kill switch
-    bool isCancelled = false;
 
-    // 1. Show the Glassy "Preparing Stream" Dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text(
-                    "Preparing stream",
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              SizedBox(height: 24),
-              Text(
-                "Fetching fresh stream URLs from source...",
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => isCancelled = true); // 👇 2. Catch swipe-backs
+    final playerController = locator<PlayerController>();
 
-    // 2. Fetch Streams in the background
-    await playerController.fetchStreamsForEpisode(
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
       episode: Episode(
         id: episodeId,
         number: epNum,
         title: 'Episode $epNum',
-        providerId: 'anikoto', 
+        providerId: 'anikoto',
         anilistId: int.tryParse(animeId) ?? 0,
       ),
       animeId: animeId,
       animeTitle: title,
       posterUrl: poster,
-      totalEpisodes: null,
-    );
+      startPosition: savedPosition,
+      onStreamReady: (stream) {
 
-    if (!context.mounted) return;
-    // 👇 3. Abort if swiped back
-    if (isCancelled) return;
-    Navigator.pop(context); // Close the loading dialog
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(playerController.errorMessage ?? "No active streams found."),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    // 3. Show Quality Selector and Launch
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => StreamQualityBottomSheet(
-        streamLinks: playerController.streamLinks,
-        selectedStream: playerController.selectedStream,
-        onStreamSelected: (StreamLink stream) {
-          playerController.selectStream(stream);
-
-          Future.delayed(const Duration(milliseconds: 250), () {
-            if (!context.mounted) return;
-
-            Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute(
-                builder: (_) => GlassyPlayerScreen(
-                  title: '$title - Episode $epNum',
-                  quality: stream.quality,
-                  streamUrl: stream.url,
-                  playerController: playerController,
-                  animeId: animeId,
-                  episodeId: episodeId,
-                  episodeNumber: epNum,
-                  posterUrl: poster,
-                  startPosition: savedPosition,
-
-                  // 👇 1. Pass the exact state when the user hits Next!
-                  onNextEpisode: () {
-                    final currentStream = playerController.selectedStream;
-                    return _handleAutoPlayNext(
-                      context,
-                      animeId,
-                      title,
-                      poster,
-                      epNum + 1,
-                      currentStream?.quality ?? '',
-                      currentStream?.sourceName ?? '',
-                    );
-                  },
-                ),
-              ),
-            );
-          });
-        },
-      ),
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(
+            builder: (_) => GlassyPlayerScreen(
+              title: '$title - Episode $epNum',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController,
+              animeId: animeId,
+              episodeId: episodeId,
+              episodeNumber: epNum,
+              posterUrl: poster,
+              onNextEpisode: () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context,
+                  animeId,
+                  title,
+                  poster,
+                  epNum + 1,
+                  currentStream?.quality ?? '',
+                  currentStream?.sourceName ?? '',
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
+
   Future<bool> _handleAutoPlayNext(
     BuildContext context, 
     String animeId, 
     String animeTitle, 
     String posterUrl, 
     int nextEpNum,
-    String previousQuality, // 👈 New Parameter
-    String previousSource,  // 👈 New Parameter
+    String previousQuality,
+    String previousSource,
   ) async {
+    final prevWasDub = previousQuality.toLowerCase().contains('dub');
+    final nextEpisodeId = '$animeTitle-ep-$nextEpNum';
+
     final playerController = locator<PlayerController>();
 
-    // We already know exactly what they were watching because we passed it in!
-    final prevWasDub = previousQuality.toLowerCase().contains('dub');
-
-    bool isCancelled = false;
-
-    // 1. Show Loading Dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(color: Color(0xFF7C3AED), strokeWidth: 2),
-              ),
-              SizedBox(width: 16),
-              Text(
-                "Loading next episode...",
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => isCancelled = true);
-
-    // 2. FETCH for the next episode
-    final nextEpisodeId = '$animeTitle-ep-$nextEpNum';
-    await playerController.fetchStreamsForEpisode(
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
       episode: Episode(
         id: nextEpisodeId,
         number: nextEpNum,
         title: 'Episode $nextEpNum',
-        providerId: 'anikoto', 
+        providerId: 'anikoto',
         anilistId: int.tryParse(animeId) ?? 0,
       ),
       animeId: animeId,
       animeTitle: animeTitle,
       posterUrl: posterUrl,
-      totalEpisodes: null, // Continue Watching doesn't strictly need totalEpisodes here
-    );
+      autoSelectDub: prevWasDub,
+      onStreamReady: (stream) {
 
-    if (!context.mounted) return false;
-    if (isCancelled) return false; 
-    
-    Navigator.pop(context); // Close dialog
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No more episodes available."), backgroundColor: Colors.redAccent),
-      );
-      return false;
-    }
-
-    // 3. The Stream Picker (Simplified & Bulletproof)
-    StreamLink? selectedStream;
-
-    if (previousQuality.isNotEmpty) {
-      // Step A: Filter to strictly Sub or strictly Dub
-      List<StreamLink> candidateStreams = playerController.streamLinks.where((link) {
-        final isDub = link.quality.toLowerCase().contains('dub');
-        return prevWasDub ? isDub : !isDub;
-      }).toList();
-
-      if (candidateStreams.isEmpty) {
-        candidateStreams = playerController.streamLinks; 
-      }
-
-      // Step B: Lock onto the EXACT server name
-      try {
-        selectedStream = candidateStreams.firstWhere(
-          (link) => link.sourceName.toLowerCase().trim() == previousSource.toLowerCase().trim()
+        Navigator.of(context, rootNavigator: true).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => GlassyPlayerScreen(
+              title: '$animeTitle - Episode $nextEpNum',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController,
+              animeId: animeId,
+              episodeId: nextEpisodeId,
+              episodeNumber: nextEpNum,
+              posterUrl: posterUrl,
+              onNextEpisode: () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, 
+                  animeId, 
+                  animeTitle, 
+                  posterUrl, 
+                  nextEpNum + 1,
+                  currentStream?.quality ?? '',
+                  currentStream?.sourceName ?? '',
+                );
+              },
+            ),
+          ),
         );
-      } catch (_) {
-        selectedStream = candidateStreams.first;
-      }
-    }
-
-    selectedStream ??= playerController.streamLinks.first;
-    playerController.selectStream(selectedStream);
-
-    // 4. Launch the player
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => GlassyPlayerScreen(
-          title: '$animeTitle - Episode $nextEpNum',
-          quality: selectedStream!.quality,
-          streamUrl: selectedStream.url,
-          playerController: playerController,
-          animeId: animeId,
-          episodeId: nextEpisodeId,
-          episodeNumber: nextEpNum,
-          posterUrl: posterUrl,
-          startPosition: null,
-          // 5. Pass the exact state AGAIN for the next episode in the chain
-          onNextEpisode: () {
-            final currentStream = playerController.selectedStream;
-            return _handleAutoPlayNext(
-              context, 
-              animeId, 
-              animeTitle, 
-              posterUrl, 
-              nextEpNum + 1,
-              currentStream?.quality ?? '',
-              currentStream?.sourceName ?? '',
-            );
-          },
-        ),
-      ),
+      },
     );
     return true;
   }

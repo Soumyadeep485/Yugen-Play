@@ -32,6 +32,7 @@ class PlayerController extends ChangeNotifier {
   final AnimeMappingService _mappingService = AnimeMappingService(); 
 
   List<StreamLink> _streamLinks = [];
+  List<ServerData> _rawServers = [];
   StreamLink? _selectedStream;
   Episode? _selectedEpisode;
   bool _isLoading = false;
@@ -41,6 +42,7 @@ class PlayerController extends ChangeNotifier {
   bool _hasMarkedWatching = false;
   bool _hasFetchedSkipTimes = false;
   StreamSubscription? _durationSubscription;
+  StreamSubscription? _playingSubscription;
 
   // AniSkip State Variables
   Duration? _introStart;
@@ -68,6 +70,7 @@ class PlayerController extends ChangeNotifier {
   }
 
   List<StreamLink> get streamLinks => _streamLinks;
+  List<ServerData> get rawServers => _rawServers;
   StreamLink? get selectedStream => _selectedStream;
   Episode? get selectedEpisode => _selectedEpisode;
   bool get isLoading => _isLoading;
@@ -78,7 +81,51 @@ class PlayerController extends ChangeNotifier {
   Duration? get outroStart => _outroStart;
   Duration? get outroEnd => _outroEnd;
 
-  Future<void> fetchStreamsForEpisode({
+  void _forceSaveHistory() {
+    try {
+      final livePosition = player.state.position;
+      final liveDuration = player.state.duration;
+
+      if (_currentAnimeId != null && 
+          _selectedEpisode != null && 
+          livePosition.inMilliseconds > 0 && 
+          liveDuration.inMilliseconds > 0) {
+          
+        _historyService.saveHistory(
+          animeId: _currentAnimeId!,
+          animeTitle: _currentAnimeTitle ?? 'Unknown',
+          episodeId: _selectedEpisode!.id,
+          episodeNumber: _selectedEpisode!.number,
+          posterUrl: _currentPosterUrl ?? '',
+          positionMs: livePosition.inMilliseconds,
+          durationMs: liveDuration.inMilliseconds,
+        );
+        
+        _lastSaveTime = DateTime.now();
+      }
+    } catch (e) {
+      debugPrint("🚨 [History] Failed to force save: $e");
+    }
+  }
+
+  void setDiscoveredServers(List<ServerData> servers) {
+    _rawServers = servers;
+    notifyListeners();
+  }
+
+  void updateStreamLinks(List<StreamLink> links) {
+    _streamLinks = links;
+    notifyListeners();
+  }
+
+  void addStreamLink(StreamLink link) {
+    if (!_streamLinks.any((s) => s.url == link.url)) {
+      _streamLinks.add(link);
+      notifyListeners();
+    }
+  }
+
+  Future<List<ServerData>> fetchRawServersForEpisode({
     required Episode episode,
     required String animeId,
     required String animeTitle,
@@ -93,7 +140,94 @@ class PlayerController extends ChangeNotifier {
     _hasMarkedCompleted = false;
     _hasMarkedWatching = false;
 
-    // Reset Skip Times for the new episode
+    _introStart = null;
+    _introEnd = null;
+    _outroStart = null;
+    _outroEnd = null;
+    _hasFetchedSkipTimes = false;
+
+    String targetEpisodeId = episode.id;
+    bool isMapped = false;
+
+    if (episode.anilistId > 0) {
+      final mappedSlug = await _mappingService.getExactSlug(episode.anilistId);
+      if (mappedSlug != null && mappedSlug.isNotEmpty) {
+        targetEpisodeId = '$mappedSlug-ep-${episode.number}';
+        isMapped = true;
+      }
+    }
+
+    if (!isMapped) {
+      final parts = targetEpisodeId.split('-ep-');
+      String safeTitle = parts.first.toLowerCase();
+      
+      safeTitle = safeTitle.replaceAll('cour', 'part');
+      safeTitle = safeTitle.replaceAll('nd season', '2');
+      safeTitle = safeTitle.replaceAll('rd season', '3'); 
+      safeTitle = safeTitle.replaceAll('th season', ''); 
+      
+      safeTitle = safeTitle
+          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+          .replaceAll(RegExp(r'^-+|-+$'), '');
+
+      targetEpisodeId = '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
+    }
+
+    final servers = await _anikotoService.fetchRawServers(
+      targetEpisodeId,
+      animeTitle: animeTitle,
+    );
+    setDiscoveredServers(servers);
+    return servers;
+  }
+
+  Future<StreamLink?> raceServers(List<ServerData> servers) async {
+    if (servers.isEmpty) return null;
+
+    final completer = Completer<StreamLink?>();
+    int failedCount = 0;
+
+    for (final server in servers) {
+      _anikotoService.extractFromSingleServer(server).then((stream) {
+        if (stream != null) {
+          addStreamLink(stream);
+          if (!completer.isCompleted) {
+            completer.complete(stream);
+          }
+        } else {
+          failedCount++;
+          if (failedCount == servers.length && !completer.isCompleted) {
+            completer.complete(null);
+          }
+        }
+      }).catchError((err) {
+        failedCount++;
+        if (failedCount == servers.length && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      });
+    }
+
+    return completer.future;
+  }
+
+  Future<void> fetchStreamsForEpisode({
+    required Episode episode,
+    required String animeId,
+    required String animeTitle,
+    required String posterUrl,
+    int? totalEpisodes,
+  }) async {
+    _forceSaveHistory(); 
+
+    _selectedEpisode = episode;
+    _currentAnimeId = animeId;
+    _currentAnimeTitle = animeTitle;
+    _currentPosterUrl = posterUrl;
+    _currentTotalEpisodes = totalEpisodes;
+    _hasMarkedCompleted = false;
+    _hasMarkedWatching = false;
+
     _introStart = null;
     _introEnd = null;
     _outroStart = null;
@@ -110,17 +244,14 @@ class PlayerController extends ChangeNotifier {
       String targetEpisodeId = episode.id;
       bool isMapped = false;
 
-      // 1. Try MAL-Sync Mapping
       if (episode.anilistId > 0) {
         final mappedSlug = await _mappingService.getExactSlug(episode.anilistId);
         if (mappedSlug != null && mappedSlug.isNotEmpty) {
           targetEpisodeId = '$mappedSlug-ep-${episode.number}';
           isMapped = true;
-          debugPrint('🎯 [Player] Resolved exact ID via MAL-Sync: $targetEpisodeId');
         }
       }
 
-      // 2. Fallback Sanitizer
       if (!isMapped) {
         final parts = targetEpisodeId.split('-ep-');
         String safeTitle = parts.first.toLowerCase();
@@ -135,19 +266,14 @@ class PlayerController extends ChangeNotifier {
             .replaceAll(RegExp(r'^-+|-+$'), '');
 
         targetEpisodeId = '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
-        debugPrint('🛠️ [Player] MAL-Sync missed. Sanitized ID for Anikoto: $targetEpisodeId');
       }
 
-      // 3. Run primary scraper (passes animeTitle as fallback query candidate)
-      debugPrint('🎬 [Player] Fetching streams for: $targetEpisodeId');
       List<StreamLink> links = await _anikotoService.extractStreams(
         targetEpisodeId, 
         animeTitle: animeTitle,
       );
 
-      // 4. Dynamic Gist fallback if primary yields no links
       if (links.isEmpty) {
-        debugPrint('⚠️ [Player] Primary scraper failed. Trying Dynamic Gist...');
         final dynamicStream = await _dynamicService.extractDynamicStream(
           embedUrl: 'https://vidtube.site/e/$targetEpisodeId',
           cipherText: targetEpisodeId,
@@ -164,15 +290,11 @@ class PlayerController extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      debugPrint('🚨 [Player] Error: $e');
       _errorMessage = 'An error occurred while fetching streams.';
       notifyListeners();
     }
   }
 
-  // ============================================================================
-  // ANISKIP API INTEGRATION
-  // ============================================================================
   Future<void> _fetchSkipTimes(int anilistId, int episodeNumber, int episodeLength) async {
     if (anilistId == 0) return;
 
@@ -194,31 +316,22 @@ class PlayerController extends ChangeNotifier {
       );
 
       final malId = alRes.data['data']?['Media']?['idMal'];
-      if (malId == null) {
-        debugPrint('⚠️ [AniSkip] No MAL ID found for AniList ID: $anilistId');
-        return;
-      }
-
-      debugPrint('🔍 [AniSkip] Looking up MAL: $malId, Ep: $episodeNumber, Exact Length: ${episodeLength}s');
+      if (malId == null) return;
 
       Future<Response> fetchFromAniSkip(int length) {
         final url = 'https://api.aniskip.com/v2/skip-times/$malId/$episodeNumber'
             '?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&types[]=recap&episodeLength=$length';
-            
-        debugPrint('🌐 [AniSkip] Calling: $url');
         return dio.get(url, options: Options(validateStatus: (status) => true)); 
       }
 
       var skipRes = await fetchFromAniSkip(episodeLength);
 
       if (skipRes.statusCode == 404) {
-        debugPrint('⚠️ [AniSkip] Exact length rejected. Falling back to generic length (0)...');
         skipRes = await fetchFromAniSkip(0);
       }
 
       if (skipRes.statusCode == 200 && skipRes.data['found'] == true) {
         final results = skipRes.data['results'] as List;
-        debugPrint('✅ [AniSkip] Match found! Parsing ${results.length} timestamps...');
         
         for (var result in results) {
           final type = result['skipType'];
@@ -234,54 +347,81 @@ class PlayerController extends ChangeNotifier {
           }
         }
         notifyListeners(); 
-      } else {
-        debugPrint('❌ [AniSkip] Completely failed. Status: ${skipRes.statusCode}');
-        debugPrint('❌ [AniSkip] Raw Response Body: ${skipRes.data}');
       }
-
     } catch (e) {
-      debugPrint('🚨 [AniSkip] Fatal error during fetch: $e');
+      debugPrint('🚨 [AniSkip] Error: $e');
     }
   }
 
-  void selectStream(StreamLink stream) {
+  void selectStream(StreamLink stream, {Duration? startPosition}) {
     _selectedStream = stream;
+    addStreamLink(stream);
     _isLoading = false;
     notifyListeners();
 
     final media = Media(stream.url, httpHeaders: stream.headers);
+
+    try {
+      player.setSubtitleTrack(SubtitleTrack.no());
+    } catch (e) {
+      debugPrint('⚠️ [Player] Subtitle set to OFF fallback: $e');
+    }
+
     player.open(media);
+
+    // 🛑 Synchronous Anti-Distortion Seek with 300ms Demuxer Buffer
+    if (startPosition != null && startPosition.inMilliseconds > 2000) {
+      StreamSubscription? safeSeekSub;
+      safeSeekSub = player.stream.duration.listen((duration) {
+        if (duration.inMilliseconds > 0) {
+          safeSeekSub?.cancel();
+          Future.delayed(const Duration(milliseconds: 300), () {
+            try {
+              player.seek(startPosition);
+            } catch (e) {
+              debugPrint('⚠️ [Seek Error]: $e');
+            }
+          });
+        }
+      });
+    }
+
+    _playingSubscription?.cancel();
+    _playingSubscription = player.stream.playing.listen((isPlaying) {
+      if (!isPlaying) {
+        _forceSaveHistory();
+      }
+    });
 
     _durationSubscription?.cancel();
     _durationSubscription = player.stream.duration.listen((duration) {
       if (duration.inMilliseconds > 0 && !_hasFetchedSkipTimes) {
         _hasFetchedSkipTimes = true;
         final lengthInSeconds = (duration.inMilliseconds / 1000).round();
-        _fetchSkipTimes(int.tryParse(_currentAnimeId ?? '') ?? 0, _selectedEpisode?.number ?? 1, lengthInSeconds);
+
+        Future.delayed(const Duration(seconds: 2), () {
+          _fetchSkipTimes(int.tryParse(_currentAnimeId ?? '') ?? 0, _selectedEpisode?.number ?? 1, lengthInSeconds);
+        });
       }
     });
 
     if (_currentAnimeId != null) {
-      final savedData = _historyService.getHistory(_currentAnimeId!);
-      if (savedData != null && savedData['episodeId'] == _selectedEpisode?.id) {
-        final int savedPos = savedData['positionMs'];
-        if (savedPos > 0) {
-          debugPrint("🕒 [History] Resuming at ${savedPos}ms");
-          player.seek(Duration(milliseconds: savedPos));
-        }
-      }
-
       _startTrackingPosition();
     }
   }
 
   void _startTrackingPosition() {
     _positionSubscription?.cancel();
-    _positionSubscription = player.stream.position.listen((position) {
+    
+    _positionSubscription = player.stream.position
+        .map((p) => p.inSeconds)
+        .distinct()
+        .listen((second) {
+      final position = Duration(seconds: second);
       final now = DateTime.now();
       final duration = player.state.duration;
 
-      if (now.difference(_lastSaveTime).inSeconds >= 5 &&
+      if (now.difference(_lastSaveTime).inSeconds >= 60 &&
           _currentAnimeId != null &&
           _selectedEpisode != null) {
         _historyService.saveHistory(
@@ -315,7 +455,6 @@ class PlayerController extends ChangeNotifier {
           final currentEpNum = _selectedEpisode?.number ?? 0; 
           
           if (_currentTotalEpisodes != null && currentEpNum == _currentTotalEpisodes) {
-            debugPrint("🎉 [Player] Final episode finished! Auto-completing series.");
             _libraryService.upsertFromPlayer(
               animeId: _currentAnimeId!,
               title: _currentAnimeTitle ?? 'Unknown',
@@ -331,6 +470,9 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _forceSaveHistory();
+
+    _playingSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     player.dispose();

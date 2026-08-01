@@ -22,22 +22,17 @@ class StreamQualityBottomSheet extends StatelessWidget {
     final subLinks = streamLinks.where((link) => !link.quality.toLowerCase().contains('dub')).toList();
     final dubLinks = streamLinks.where((link) => link.quality.toLowerCase().contains('dub')).toList();
 
-    // 1. SafeArea prevents it from drawing underneath the Android navigation bar
     return SafeArea(
-      // 2. Padding creates the "Floating" effect away from the screen edges
       child: Padding(
         padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 24.0),
         child: ClipRRect(
-          // 3. Fully rounded corners on all 4 sides!
           borderRadius: BorderRadius.circular(32),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
             child: Container(
-              // 4. Tightened up the inner padding to eliminate wasted space
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
               decoration: BoxDecoration(
                 color: const Color(0xFF14141B).withValues(alpha: 0.8), 
-                // Full border wraps the floating pill
                 border: Border.all(
                   color: Colors.white.withValues(alpha: 0.15), 
                   width: 1,
@@ -46,9 +41,8 @@ class StreamQualityBottomSheet extends StatelessWidget {
               child: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min, // Hugs the content tightly
+                  mainAxisSize: MainAxisSize.min, 
                   children: [
-                    // Condensed Drag Handle
                     Center(
                       child: Container(
                         width: 40,
@@ -71,7 +65,7 @@ class StreamQualityBottomSheet extends StatelessWidget {
                       _buildSectionHeader(Icons.subtitles_rounded, "SUBTITLED"),
                       const SizedBox(height: 10),
                       ...subLinks.map((stream) => _buildStreamTile(stream, context)),
-                      const SizedBox(height: 16), // Tighter spacing between sections
+                      const SizedBox(height: 16), 
                     ],
 
                     if (dubLinks.isNotEmpty) ...[
@@ -98,7 +92,7 @@ class StreamQualityBottomSheet extends StatelessWidget {
           title,
           style: const TextStyle(
             color: AppColors.primary,
-            fontSize: 12, // Slightly smaller and cleaner
+            fontSize: 12, 
             fontWeight: FontWeight.w900,
             letterSpacing: 1.0,
           ),
@@ -125,7 +119,6 @@ class StreamQualityBottomSheet extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeOutCubic,
-            // Tightened the vertical padding inside the tiles to save screen height
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: isSelected 
@@ -152,7 +145,7 @@ class StreamQualityBottomSheet extends StatelessWidget {
                   child: Icon(
                     Icons.dns_rounded, 
                     color: isSelected ? AppColors.primary : Colors.white54,
-                    size: 18, // Slightly smaller icon
+                    size: 18, 
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -169,7 +162,7 @@ class StreamQualityBottomSheet extends StatelessWidget {
                           fontSize: 15,
                         ),
                       ),
-                      const SizedBox(height: 2), // Tighter gap between text
+                      const SizedBox(height: 2), 
                       Text(
                         stream.quality,
                         style: TextStyle(

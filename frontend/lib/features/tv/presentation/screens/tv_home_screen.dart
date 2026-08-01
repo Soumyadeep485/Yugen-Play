@@ -14,8 +14,7 @@ import '../../../history/services/watch_history_service.dart';
 import '../../../home/controllers/home_provider.dart';
 import '../../../player/controllers/player_controller.dart';
 import '../../../player/models/episode.dart';
-import '../../../player/models/stream_link.dart';
-import '../../../player/presentation/widgets/stream_quality_bottom_sheet.dart';
+import '../../../player/presentation/widgets/stream_loading_dialog.dart';
 import '../widgets/tv_update_dialog.dart';
 import 'tv_anime_details_screen.dart';
 import 'tv_player_screen.dart';
@@ -32,13 +31,9 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
   @override
   void initState() {
     super.initState();
-    // 🚀 Fire the update check immediately when the TV home screen loads
     _checkForUpdates(); 
   }
 
-  // ============================================================================
-  // UPDATE CHECKER LOGIC
-  // ============================================================================
   Future<void> _checkForUpdates() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
@@ -96,9 +91,6 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
     return false; 
   }
 
-  // ============================================================================
-  // UI BUILDER
-  // ============================================================================
   @override
   Widget build(BuildContext context) {
     final homeState = ref.watch(homeProvider);
@@ -112,16 +104,13 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 32.0),
                 children: [
-                  // HERO BANNER
                   if (homeState.data.popular.isNotEmpty)
                     _TvHeroBanner(animeList: homeState.data.popular.take(5).toList()),
 
                   const SizedBox(height: 48),
 
-                  // CONTINUE WATCHING
                   const _TvContinueWatchingSection(),
 
-                  // POPULAR ANIMES
                   _TvAnimeSection(
                     title: "Trending Now",
                     animeList: homeState.data.popular,
@@ -129,7 +118,6 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
 
                   const SizedBox(height: 24),
 
-                  // NEW RELEASES
                   _TvAnimeSection(
                     title: "New Releases",
                     animeList: homeState.data.seasonal,
@@ -143,9 +131,6 @@ class _TvHomeScreenState extends ConsumerState<TvHomeScreen> {
   }
 }
 
-// ============================================================================
-// 1. SLEEK LOW-RESOURCE HERO BANNER
-// ============================================================================
 class _TvHeroBanner extends StatefulWidget {
   final List<Anime> animeList;
 
@@ -158,7 +143,7 @@ class _TvHeroBanner extends StatefulWidget {
 class _TvHeroBannerState extends State<_TvHeroBanner> {
   int _currentIndex = 0;
   Timer? _timer;
-  bool _isPaused = false; // 🚀 Pauses banner rotation when focused
+  bool _isPaused = false; 
 
   @override
   void initState() {
@@ -328,7 +313,6 @@ class _TvWatchNowButtonState extends State<_TvWatchNowButton> {
     setState(() => _isFocused = focused);
     widget.onFocusChange?.call(focused);
     
-    // 🚀 Auto-scroll viewport into view when focused
     if (focused && mounted) {
       Scrollable.ensureVisible(
         context,
@@ -380,9 +364,6 @@ class _TvWatchNowButtonState extends State<_TvWatchNowButton> {
   }
 }
 
-// ============================================================================
-// 2. TV CONTINUE WATCHING SECTION (WITH AUTO-PLAY LOGIC)
-// ============================================================================
 class _TvContinueWatchingSection extends StatefulWidget {
   const _TvContinueWatchingSection();
 
@@ -402,102 +383,59 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
     String previousQuality, 
     String previousSource,
   ) async {
-    final playerController = locator<PlayerController>();
     final prevWasDub = previousQuality.toLowerCase().contains('dub');
-    bool isCancelled = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2)),
-              const SizedBox(width: 16),
-              Text("Loading Episode $nextEpNum...", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => isCancelled = true);
-
     final nextEpisodeId = '$animeTitle-ep-$nextEpNum';
-    await playerController.fetchStreamsForEpisode(
+
+    final playerController = locator<PlayerController>();
+
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
       episode: Episode(
         id: nextEpisodeId,
         number: nextEpNum,
         title: 'Episode $nextEpNum',
-        providerId: 'anikoto', 
+        providerId: 'anikoto',
         anilistId: int.tryParse(animeId) ?? 0,
       ),
       animeId: animeId,
       animeTitle: animeTitle,
       posterUrl: poster,
-      totalEpisodes: null,
-    );
+      autoSelectDub: prevWasDub,
+      onStreamReady: (stream) {
 
-    if (!context.mounted) return false;
-    if (isCancelled) return false;
-    Navigator.pop(context);
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to find streams for next episode."), backgroundColor: Colors.redAccent));
-      return false;
-    }
-
-    StreamLink? selectedStream;
-    if (previousQuality.isNotEmpty) {
-      List<StreamLink> candidateStreams = playerController.streamLinks.where((link) {
-        final isDub = link.quality.toLowerCase().contains('dub'); 
-        return prevWasDub ? isDub : !isDub; 
-      }).toList();
-
-      if (candidateStreams.isEmpty) candidateStreams = playerController.streamLinks;
-
-      try {
-        selectedStream = candidateStreams.firstWhere((link) => link.sourceName.toLowerCase().trim() == previousSource.toLowerCase().trim());
-      } catch (_) {
-        selectedStream = candidateStreams.first;
-      }
-    }
-    selectedStream ??= playerController.streamLinks.first;
-    playerController.selectStream(selectedStream);
-
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => TvPlayerScreen(
-          title: '$animeTitle - Episode $nextEpNum',
-          quality: selectedStream!.quality,
-          streamUrl: selectedStream.url, 
-          playerController: playerController,
-          animeId: animeId,
-          episodeId: nextEpisodeId,
-          episodeNumber: nextEpNum,
-          posterUrl: poster,
-          onNextEpisode: () {
-            final currentStream = playerController.selectedStream;
-            return _handleAutoPlayNext(
-              context, nextEpNum + 1, animeTitle, animeId, poster, 
-              currentStream?.quality ?? '', currentStream?.sourceName ?? '',
-            );
-          },
-        ),
-      ),
+        Navigator.of(context, rootNavigator: true).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => TvPlayerScreen(
+              title: '$animeTitle - Episode $nextEpNum',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController,
+              animeId: animeId,
+              episodeId: nextEpisodeId,
+              episodeNumber: nextEpNum,
+              posterUrl: poster,
+              onNextEpisode: () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, 
+                  nextEpNum + 1, 
+                  animeTitle, 
+                  animeId, 
+                  poster, 
+                  currentStream?.quality ?? '', 
+                  currentStream?.sourceName ?? '',
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
     return true;
   }
 
   Future<void> _resumeEpisode(BuildContext context, Map<String, dynamic> item) async {
-    final playerController = locator<PlayerController>();
     final animeId = item['animeId'].toString();
     final title = item['animeTitle']?.toString() ?? 'Unknown';
     final epNum = item['episodeNumber'] as int? ?? 1;
@@ -505,80 +443,51 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
     final episodeId = item['episodeId']?.toString() ?? '$title-ep-$epNum';
     final savedPosition = Duration(milliseconds: int.tryParse(item['positionMs'].toString()) ?? 0);
 
-    bool isCancelled = false;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(width: 16),
-              Text("Preparing TV Stream...", style: TextStyle(color: Colors.white, fontSize: 16)),
-            ],
-          ),
-        ),
+    final playerController = locator<PlayerController>();
+
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
+      episode: Episode(
+        id: episodeId,
+        number: epNum,
+        title: 'Episode $epNum',
+        providerId: 'anikoto',
+        anilistId: int.tryParse(animeId) ?? 0,
       ),
-    ).then((_) => isCancelled = true);
+      animeId: animeId,
+      animeTitle: title,
+      posterUrl: poster,
+      startPosition: savedPosition,
+      onStreamReady: (stream) {
 
-    await playerController.fetchStreamsForEpisode(
-      episode: Episode(id: episodeId, number: epNum, title: 'Episode $epNum', providerId: 'anikoto', anilistId: int.tryParse(animeId) ?? 0),
-      animeId: animeId, animeTitle: title, posterUrl: poster, totalEpisodes: null,
-    );
-
-    if (!context.mounted || isCancelled) return;
-    Navigator.pop(context);
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(playerController.errorMessage ?? "No active streams found.")));
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => StreamQualityBottomSheet(
-        streamLinks: playerController.streamLinks,
-        selectedStream: playerController.selectedStream,
-        onStreamSelected: (StreamLink stream) {
-          playerController.selectStream(stream);
-          Future.delayed(const Duration(milliseconds: 250), () {
-            if (!context.mounted) return;
-            Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute(
-                builder: (_) => TvPlayerScreen(
-                  title: '$title - Episode $epNum', 
-                  quality: stream.quality, 
-                  streamUrl: stream.url,
-                  playerController: playerController, 
-                  animeId: animeId, 
-                  episodeId: episodeId,
-                  episodeNumber: epNum, 
-                  posterUrl: poster, 
-                  startPosition: savedPosition,
-                  onNextEpisode: () {
-                    final currentStream = playerController.selectedStream;
-                    return _handleAutoPlayNext(
-                      context, epNum + 1, title, animeId, poster,
-                      currentStream?.quality ?? '', currentStream?.sourceName ?? '',
-                    );
-                  },
-                ),
-              ),
-            );
-          });
-        },
-      ),
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(
+            builder: (_) => TvPlayerScreen(
+              title: '$title - Episode $epNum',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController,
+              animeId: animeId,
+              episodeId: episodeId,
+              episodeNumber: epNum,
+              posterUrl: poster,
+              onNextEpisode: () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context,
+                  epNum + 1,
+                  title,
+                  animeId,
+                  poster,
+                  currentStream?.quality ?? '',
+                  currentStream?.sourceName ?? '',
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -638,7 +547,6 @@ class _TvContinueWatchingCardState extends State<_TvContinueWatchingCard> {
 
   void _handleFocusChange(bool focused) {
     setState(() => _isFocused = focused);
-    // 🚀 Auto-scroll horizontally to keep focused item centered
     if (focused && mounted) {
       Scrollable.ensureVisible(
         context,
@@ -732,9 +640,6 @@ class _TvContinueWatchingCardState extends State<_TvContinueWatchingCard> {
   }
 }
 
-// ============================================================================
-// 3. TV ANIME ROW SECTION
-// ============================================================================
 class _TvAnimeSection extends StatelessWidget {
   final String title;
   final List<Anime> animeList;
@@ -780,7 +685,6 @@ class _TvAnimeCardState extends State<_TvAnimeCard> {
 
   void _handleFocusChange(bool focused) {
     setState(() => _isFocused = focused);
-    // 🚀 Auto-scroll horizontally to keep focused poster centered
     if (focused && mounted) {
       Scrollable.ensureVisible(
         context,

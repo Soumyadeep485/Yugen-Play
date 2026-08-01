@@ -1,41 +1,59 @@
 import 'package:flutter/material.dart';
-import '../../../../../../core/colors/app_colors.dart';
-import '../../../../core/storage/history_repository.dart';
+import 'package:frontend/features/extensions/services/anikoto_extension_service.dart';
+import 'package:frontend/features/player/controllers/player_controller.dart';
+import 'package:frontend/features/player/models/episode.dart';
+import 'package:frontend/features/player/models/stream_link.dart';
+import '../../../../core/colors/app_colors.dart';
 
 class StreamLoadingDialog extends StatefulWidget {
+  final PlayerController playerController; 
+  final Episode episode;
   final String animeId;
   final String animeTitle;
-  final String episodeId;
-  final int episodeNumber;
-  
-  // Pass your stream fetching logic here
-  final Future<String> Function() fetchStreamUrl;
+  final String posterUrl;
+  final int? totalEpisodes;
+  final Duration? startPosition;
+  final bool? autoSelectDub;
+  final Function(StreamLink stream) onStreamReady;
 
   const StreamLoadingDialog({
     super.key,
+    required this.playerController, 
+    required this.episode,
     required this.animeId,
     required this.animeTitle,
-    required this.episodeId,
-    required this.episodeNumber,
-    required this.fetchStreamUrl,
+    required this.posterUrl,
+    this.totalEpisodes,
+    this.startPosition,
+    this.autoSelectDub,
+    required this.onStreamReady,
   });
 
-  static void show(BuildContext context, {
+  static Future<void> show(
+    BuildContext context, {
+    required PlayerController playerController, 
+    required Episode episode,
     required String animeId,
     required String animeTitle,
-    required String episodeId,
-    required int episodeNumber,
-    required Future<String> Function() fetchStreamUrl,
-  }) {
-    showDialog(
+    required String posterUrl,
+    int? totalEpisodes,
+    Duration? startPosition,
+    bool? autoSelectDub,
+    required Function(StreamLink stream) onStreamReady,
+  }) async {
+    return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => StreamLoadingDialog(
+        playerController: playerController, 
+        episode: episode,
         animeId: animeId,
         animeTitle: animeTitle,
-        episodeId: episodeId,
-        episodeNumber: episodeNumber,
-        fetchStreamUrl: fetchStreamUrl,
+        posterUrl: posterUrl,
+        totalEpisodes: totalEpisodes,
+        startPosition: startPosition,
+        autoSelectDub: autoSelectDub,
+        onStreamReady: onStreamReady,
       ),
     );
   }
@@ -45,42 +63,101 @@ class StreamLoadingDialog extends StatefulWidget {
 }
 
 class _StreamLoadingDialogState extends State<StreamLoadingDialog> {
-  // ignore: unused_field
-  final HistoryRepository _historyRepo = HistoryRepository();
-  String _currentStep = "Preparing playback...";
+  PlayerController get _playerController => widget.playerController; 
+
+  bool _isDiscovering = true;
+  bool _isRacing = false;
+  String _statusText = "Discovering available servers...";
+  String? _errorMessage;
+
+  List<ServerData> _subServers = [];
+  List<ServerData> _dubServers = [];
 
   @override
   void initState() {
     super.initState();
-    _executeLoadingFlow();
+    _startDiscovery();
   }
 
-  Future<void> _executeLoadingFlow() async {
+  Future<void> _startDiscovery() async {
     try {
-      // Step 1: Check Database
-      setState(() => _currentStep = "Checking local history...");
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Variable assignment removed to fix the unused warning
-      _historyRepo.getHistory(widget.animeId);
+      final rawServers = await _playerController.fetchRawServersForEpisode(
+        episode: widget.episode,
+        animeId: widget.animeId,
+        animeTitle: widget.animeTitle,
+        posterUrl: widget.posterUrl,
+        totalEpisodes: widget.totalEpisodes,
+      );
 
-      // Step 2: Fetch Network Stream
-      setState(() => _currentStep = "Fetching fresh stream URLs...");
-      
-      // Executed but not assigned to a variable to fix the unused warning
-      await widget.fetchStreamUrl();
+      if (!mounted) return;
 
-      // Step 3: Launch Player
-      setState(() => _currentStep = "Launching player...");
-      await Future.delayed(const Duration(milliseconds: 300));
-      
-      if (mounted) {
-        Navigator.pop(context); // Close the dialog
+      if (rawServers.isEmpty) {
+        setState(() {
+          _isDiscovering = false;
+          _errorMessage = "No stream servers found for this episode.";
+        });
+        return;
       }
+
+      _subServers = rawServers.where((s) => !s.isDub).toList();
+      _dubServers = rawServers.where((s) => s.isDub).toList();
+
+      if (widget.autoSelectDub != null) {
+        final targetServers = widget.autoSelectDub! ? _dubServers : _subServers;
+        final fallbackServers = widget.autoSelectDub! ? _subServers : _dubServers;
+
+        if (targetServers.isNotEmpty) {
+          _raceSelectedCategory(targetServers, widget.autoSelectDub! ? "DUB" : "SUB");
+          return;
+        } else if (fallbackServers.isNotEmpty) {
+          _raceSelectedCategory(fallbackServers, widget.autoSelectDub! ? "SUB" : "DUB");
+          return;
+        }
+      }
+
+      setState(() {
+        _isDiscovering = false;
+        _statusText = "Select audio preference:";
+      });
     } catch (e) {
       if (mounted) {
-        setState(() => _currentStep = "Error: Failed to fetch stream.");
+        setState(() {
+          _isDiscovering = false;
+          _errorMessage = "Failed to discover servers.";
+        });
       }
+    }
+  }
+
+  Future<void> _raceSelectedCategory(List<ServerData> servers, String categoryName) async {
+    setState(() {
+      _isRacing = true;
+      _statusText = "Racing $categoryName servers for fastest response...";
+    });
+
+    // 🛑 Background Extraction: Extract remaining raw servers so player quality sheet is full
+    final unselected = _playerController.rawServers.where((s) => !servers.contains(s)).toList();
+    if (unselected.isNotEmpty) {
+      for (final s in unselected) {
+        AnikotoExtensionService().extractFromSingleServer(s).then((stream) {
+          if (stream != null) _playerController.addStreamLink(stream);
+        }).catchError((_) {});
+      }
+    }
+
+    final winningStream = await _playerController.raceServers(servers);
+
+    if (!mounted) return;
+
+    if (winningStream != null) {
+      _playerController.selectStream(winningStream, startPosition: widget.startPosition); 
+      Navigator.pop(context); 
+      widget.onStreamReady(winningStream);
+    } else {
+      setState(() {
+        _isRacing = false;
+        _errorMessage = "Failed to connect to $categoryName servers.";
+      });
     }
   }
 
@@ -92,8 +169,8 @@ class _StreamLoadingDialogState extends State<StreamLoadingDialog> {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: const Color(0xFF14141B),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white10),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white12),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -101,12 +178,15 @@ class _StreamLoadingDialogState extends State<StreamLoadingDialog> {
           children: [
             Row(
               children: [
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-                ),
-                const SizedBox(width: 16),
+                if (_isDiscovering || _isRacing)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2.5),
+                  )
+                else
+                  const Icon(Icons.tune_rounded, color: AppColors.primary, size: 22),
+                const SizedBox(width: 14),
                 const Text(
                   "Preparing stream",
                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
@@ -120,11 +200,58 @@ class _StreamLoadingDialogState extends State<StreamLoadingDialog> {
                 )
               ],
             ),
-            const SizedBox(height: 24),
-            Text(
-              _currentStep,
-              style: const TextStyle(color: Colors.white70, fontSize: 14),
-            ),
+            const SizedBox(height: 20),
+
+            if (_errorMessage != null) ...[
+              Text(
+                _errorMessage!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              Text(
+                _statusText,
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            if (!_isDiscovering && !_isRacing && _errorMessage == null)
+              Row(
+                children: [
+                  if (_subServers.isNotEmpty)
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _raceSelectedCategory(_subServers, "SUB"),
+                        icon: const Icon(Icons.subtitles_rounded, size: 18),
+                        label: Text("SUB (${_subServers.length})"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                  if (_subServers.isNotEmpty && _dubServers.isNotEmpty)
+                    const SizedBox(width: 12),
+                  if (_dubServers.isNotEmpty)
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _raceSelectedCategory(_dubServers, "DUB"),
+                        icon: const Icon(Icons.mic_rounded, size: 18),
+                        label: Text("DUB (${_dubServers.length})"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.1),
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white24),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
           ],
         ),
       ),

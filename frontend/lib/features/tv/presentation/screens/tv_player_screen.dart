@@ -7,7 +7,6 @@ import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../../core/colors/app_colors.dart';
-import '../../../history/services/watch_history_service.dart';
 import '../../../player/controllers/player_controller.dart';
 
 class TvPlayerScreen extends StatefulWidget {
@@ -19,7 +18,6 @@ class TvPlayerScreen extends StatefulWidget {
   final String episodeId;
   final int episodeNumber;
   final String posterUrl;
-  final Duration? startPosition;
   final Future<bool> Function()? onNextEpisode;
   final VoidCallback? onPreviousEpisode;
 
@@ -33,7 +31,6 @@ class TvPlayerScreen extends StatefulWidget {
     required this.episodeId,
     required this.episodeNumber,
     required this.posterUrl,
-    this.startPosition,
     this.onNextEpisode,
     this.onPreviousEpisode,
   });
@@ -48,8 +45,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
 
   final List<StreamSubscription> _subscriptions = [];
   Timer? _controlsTimer;
-  Timer? _saveTimer;
-  final WatchHistoryService _historyService = WatchHistoryService();
 
   bool _isBuffering = true;
   bool _isPlaying = false;
@@ -72,23 +67,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     _setupPlayerListeners();
-
     _player.setSubtitleTrack(mk.SubtitleTrack.no());
-
-    // Smart Resume Logic
-    if (widget.startPosition != null && widget.startPosition! > const Duration(seconds: 5)) {
-      bool hasSeeked = false;
-      late StreamSubscription<Duration> posSub;
-      
-      posSub = _player.stream.position.listen((pos) {
-        if (!hasSeeked && pos.inMilliseconds > 500 && _player.state.duration.inMilliseconds > 0) {
-          hasSeeked = true;
-          _player.seek(widget.startPosition!);
-          posSub.cancel(); 
-        }
-      });
-      _subscriptions.add(posSub);
-    }
 
     _isPlaying = _player.state.playing;
     _isBuffering = _player.state.buffering;
@@ -97,7 +76,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
     _buffer = _player.state.buffer; 
 
     _resetControlsTimer();
-    _startHistorySaver();
 
     _subscriptions.add(_player.stream.completed.listen((completed) async {
       if (completed && mounted && widget.onNextEpisode != null && !_isTransitioningToNext) {
@@ -129,24 +107,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
         if (mounted) setState(() => _isBuffering = buffering);
       }),
     ]);
-  }
-
-  void _startHistorySaver() {
-    _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      final livePosition = _player.state.position;
-      final liveDuration = _player.state.duration;
-      if (mounted && _player.state.playing && livePosition.inMilliseconds > 0) {
-        _historyService.saveHistory(
-          animeId: widget.animeId,
-          animeTitle: widget.title.split('-').first.trim(),
-          episodeId: widget.episodeId,
-          episodeNumber: widget.episodeNumber,
-          posterUrl: widget.posterUrl,
-          positionMs: livePosition.inMilliseconds,
-          durationMs: liveDuration.inMilliseconds,
-        );
-      }
-    });
   }
 
   void _resetControlsTimer() {
@@ -200,7 +160,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true, 
       builder: (context) {
-        // 🚀 Wrapped Modal in FocusScope to trap D-pad inside
         return FocusScope(
           autofocus: true,
           child: Container(
@@ -269,15 +228,20 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
 
   @override
   void dispose() {
-    _saveTimer?.cancel();
     _controlsTimer?.cancel();
     _backgroundFocusNode.dispose();
     _playPauseFocusNode.dispose();
     for (final s in _subscriptions) {
       s.cancel();
     }
-    _player.stop();
+    
+    try {
+      _player.stop();
+    } catch (_) {}
+
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    widget.playerController.dispose();
+
     super.dispose();
   }
 
@@ -333,7 +297,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
           if (_isBuffering)
             const Center(child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 3)),
 
-          // 🚀 BACKGROUND FOCUS TRAP: Wakes UI on D-Pad Up/Down
           Positioned.fill(
             child: Focus(
               focusNode: _backgroundFocusNode,
@@ -341,7 +304,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
               canRequestFocus: !_showControls, 
               onKeyEvent: (node, event) {
                 if (!_showControls && event is KeyDownEvent) {
-                  // Ignore system volume/back keys
                   if (event.logicalKey == LogicalKeyboardKey.audioVolumeUp || 
                       event.logicalKey == LogicalKeyboardKey.audioVolumeDown || 
                       event.logicalKey == LogicalKeyboardKey.audioVolumeMute ||
@@ -350,7 +312,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                     return KeyEventResult.ignored;
                   }
 
-                  // Background Seeking
                   if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
                     _seekRelative(-10);
                     return KeyEventResult.handled;
@@ -360,7 +321,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                     return KeyEventResult.handled;
                   }
 
-                  // Background Pause
                   if (event.logicalKey == LogicalKeyboardKey.mediaPlayPause ||
                       event.logicalKey == LogicalKeyboardKey.mediaPlay ||
                       event.logicalKey == LogicalKeyboardKey.mediaPause) {
@@ -371,7 +331,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                     return KeyEventResult.handled;
                   }
                   
-                  // 🚀 Wake up controls on Up/Down or Select
                   setState(() => _showControls = true);
                   WidgetsBinding.instance.addPostFrameCallback((_) => _playPauseFocusNode.requestFocus());
                   _resetControlsTimer();
@@ -395,7 +354,6 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
 
           if (_showControls)
             Positioned.fill(
-              // 🚀 FOREGROUND FOCUS TRAP: Locks D-pad inside the controls
               child: FocusScope(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -483,7 +441,7 @@ class _TvPlayerScreenState extends State<TvPlayerScreen> {
                             _player.playOrPause();
                             _resetControlsTimer();
                           },
-                          autofocus: true, // 🚀 Auto-focuses Play/Pause on wake
+                          autofocus: true,
                           focusNode: _playPauseFocusNode,
                           onFocus: _resetControlsTimer,
                           size: 56,
@@ -788,7 +746,7 @@ class _TvSubtitleOptionTileState extends State<_TvSubtitleOptionTile> {
       color: Colors.transparent,
       child: InkWell(
         onTap: widget.onTap,
-        autofocus: widget.isSelected, // 🚀 Wakes up with the currently active subtitle pre-focused!
+        autofocus: widget.isSelected, 
         onFocusChange: (focused) => setState(() => _isFocused = focused),
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(

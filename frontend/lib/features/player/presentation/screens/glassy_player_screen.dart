@@ -3,10 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 
-import 'package:media_kit/media_kit.dart' hide SubtitleTrack, AudioTrack;
-import 'package:media_kit/media_kit.dart' as mk;
+import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -20,9 +18,8 @@ import '../widgets/glassy_more_options_sheet.dart';
 import '../../../../core/colors/app_colors.dart';
 import '../../../../src/rust/api/torrent.dart';
 import '../../controllers/player_controller.dart';
-import '../widgets/stream_quality_bottom_sheet.dart';
 import '../widgets/subtitle_selector_sheet.dart';
-import '../../../history/services/watch_history_service.dart'; 
+import '../widgets/stream_quality_bottom_sheet.dart'; // 👈 Needed for switching quality
 
 class GlassyPlayerScreen extends StatefulWidget {
   final String title;
@@ -34,7 +31,6 @@ class GlassyPlayerScreen extends StatefulWidget {
   final String episodeId;
   final int episodeNumber;
   final String posterUrl;
-  final Duration? startPosition; 
 
   final Future<bool> Function()? onNextEpisode;
   final VoidCallback? onPreviousEpisode;
@@ -49,7 +45,6 @@ class GlassyPlayerScreen extends StatefulWidget {
     required this.episodeId,
     required this.episodeNumber,
     required this.posterUrl,
-    this.startPosition,
     this.onNextEpisode,
     this.onPreviousEpisode,
   });
@@ -66,27 +61,20 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
   TorrentEngine? _rustEngine;
   Timer? _controlsTimer;
 
-  Timer? _saveTimer;
-  final WatchHistoryService _historyService = WatchHistoryService();
-
   StreamSubscription? _completedSub;
   bool _isTransitioningToNext = false;
 
   bool _isBuffering = true;
   bool _isPlaying = false;
   bool _showControls = true;
-  bool _hasSetSubtitle = false;
   bool _isLocked = false;
 
-  // Visual feedback states
   bool _showForwardRipple = false;
   bool _showRewindRipple = false;
   
-  // Customization States
   double _playbackSpeed = 1.0;
   BoxFit _currentFit = BoxFit.contain;
 
-  // Toast State
   String? _toastMessage;
   Timer? _toastTimer;
 
@@ -105,33 +93,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
     _setupPlayerListeners();
 
-    if (widget.startPosition != null && widget.startPosition! > const Duration(seconds: 5)) {
-      void triggerSafeSeek() {
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            try {
-              _player.seek(widget.startPosition!);
-              debugPrint("Successfully resumed at: ${widget.startPosition}");
-            } catch (e) {
-              debugPrint("Seek failed: $e");
-            }
-          }
-        });
-      }
-
-      if (_player.state.duration.inMilliseconds > 0) {
-        triggerSafeSeek();
-      } else {
-        StreamSubscription? resumeSub;
-        resumeSub = _player.stream.duration.listen((duration) {
-          if (duration.inMilliseconds > 0) {
-            triggerSafeSeek();
-            resumeSub?.cancel(); 
-          }
-        });
-      }
-    }
-
     if (widget.streamUrl.startsWith('magnet:')) {
       _setupTorrentStream(widget.streamUrl);
     } else {
@@ -139,12 +100,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       _isBuffering = _player.state.buffering;
       _position = _player.state.position;
       _duration = _player.state.duration;
-      _buffer = _player.state.buffer; // 🚀 Initialize buffer state
-
-      if (_isPlaying && !_hasSetSubtitle) {
-        _hasSetSubtitle = true;
-        _injectSubtitle();
-      }
+      _buffer = _player.state.buffer;
     }
 
     _resetControlsTimer();
@@ -153,120 +109,36 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       if (completed && mounted && widget.onNextEpisode != null) {
         if (!_isTransitioningToNext) {
           setState(() => _isTransitioningToNext = true);
-          debugPrint("Video finished. Auto-playing next episode...");
-
           final success = await widget.onNextEpisode!();
-
           if (mounted && !success) {
             setState(() => _isTransitioningToNext = false);
           }
         }
       }
     });
-    
-    _startHistorySaver();
-  }
-
-  void _startHistorySaver() {
-    _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      final livePosition = _player.state.position;
-      final liveDuration = _player.state.duration;
-
-      if (mounted && _player.state.playing && livePosition.inMilliseconds > 0 && liveDuration.inMilliseconds > 0) {
-        _historyService.saveHistory(
-          animeId: widget.animeId,
-          animeTitle: widget.title.split('-').first.trim(),
-          episodeId: widget.episodeId,
-          episodeNumber: widget.episodeNumber,
-          posterUrl: widget.posterUrl,
-          positionMs: livePosition.inMilliseconds,
-          durationMs: liveDuration.inMilliseconds,
-        );
-      }
-    });
-  }
-
-  Future<void> _injectSubtitle() async {
-    final stream = widget.playerController.selectedStream;
-    if (stream == null || stream.subtitles.isEmpty) {
-      return;
-    }
-
-    try {
-      final sub = stream.subtitles.firstWhere(
-        (s) {
-          final json = s.toJson();
-          final label = (json['label'] ?? json['name'] ?? '').toString().toLowerCase();
-          return label.contains('eng');
-        },
-        orElse: () => stream.subtitles.first,
-      );
-
-      final subJson = sub.toJson();
-      final subUrl = subJson['url']?.toString() ?? subJson['file']?.toString() ?? '';
-      final subLabel = subJson['label']?.toString() ?? 'English';
-
-      if (subUrl.isNotEmpty) {
-        final res = await http.get(Uri.parse(subUrl), headers: stream.headers);
-        if (res.statusCode == 200) {
-          final tempDir = await getTemporaryDirectory();
-          final subFile = File('${tempDir.path}/yugen_sub_${DateTime.now().millisecondsSinceEpoch}.vtt');
-          await subFile.writeAsString(res.body);
-
-          _player.setSubtitleTrack(mk.SubtitleTrack.uri(
-            subFile.uri.toString(),
-            title: subLabel,
-            language: 'en',
-          ));
-        } else {
-          _player.setSubtitleTrack(mk.SubtitleTrack.uri(subUrl, title: subLabel, language: 'en'));
-        }
-      }
-    } catch (e) {
-      debugPrint("🚨 [MediaKit] Failed to brute-force subtitle: $e");
-    }
   }
 
   void _setupPlayerListeners() {
     _subscriptions.addAll([
       _player.stream.position.listen((pos) {
-        if (mounted) {
-          setState(() => _position = pos);
-        }
+        if (mounted) setState(() => _position = pos);
       }),
       _player.stream.duration.listen((dur) {
-        if (mounted) {
-          setState(() => _duration = dur);
-        }
+        if (mounted) setState(() => _duration = dur);
       }),
-      // 🚀 NEW: Continuously update buffer duration from media_kit
       _player.stream.buffer.listen((buf) {
-        if (mounted) {
-          setState(() => _buffer = buf);
-        }
+        if (mounted) setState(() => _buffer = buf);
       }),
       _player.stream.playing.listen((playing) {
         if (mounted) {
           setState(() => _isPlaying = playing);
-          if (playing) {
-            _resetControlsTimer();
-            if (!_hasSetSubtitle) {
-              _hasSetSubtitle = true;
-              Future.delayed(const Duration(milliseconds: 1000), () {
-                if (mounted) {
-                  _injectSubtitle();
-                }
-              });
-            }
-          }
+          if (playing) _resetControlsTimer();
         }
       }),
       _player.stream.buffering.listen((buffering) {
         if (mounted) {
           setState(() => _isBuffering = buffering);
-          if (!buffering && _isPlaying) {
-            _resetControlsTimer();
-          }
+          if (!buffering && _isPlaying) _resetControlsTimer();
         }
       }),
       _player.stream.error.listen((error) {
@@ -284,9 +156,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       final baseTempDir = await getTemporaryDirectory();
       final cacheDir = Directory('${baseTempDir.path}/yugen_stream_cache');
 
-      if (await cacheDir.exists()) {
-        await cacheDir.delete(recursive: true);
-      }
+      if (await cacheDir.exists()) await cacheDir.delete(recursive: true);
       await cacheDir.create();
 
       _rustEngine = TorrentEngine.init(downloadDir: cacheDir.path);
@@ -294,9 +164,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
       await _player.open(Media(localStreamUrl), play: true);
     } catch (e) {
-      if (mounted) {
-        setState(() => _isBuffering = false);
-      }
+      if (mounted) setState(() => _isBuffering = false);
     }
   }
 
@@ -304,17 +172,13 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
     _controlsTimer?.cancel();
     if (_isPlaying && !_isLocked) {
       _controlsTimer = Timer(const Duration(seconds: 4), () {
-        if (mounted && _isPlaying) {
-          setState(() => _showControls = false);
-        }
+        if (mounted && _isPlaying) setState(() => _showControls = false);
       });
     }
   }
 
   void _toggleControls() {
-    setState(() {
-      _showControls = !_showControls;
-    });
+    setState(() => _showControls = !_showControls);
     if (_showControls) {
       _resetControlsTimer();
     } else {
@@ -338,12 +202,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       }
     });
     Future.delayed(const Duration(milliseconds: 400), () {
-      if (mounted) {
-        setState(() {
-          _showForwardRipple = false;
-          _showRewindRipple = false;
-        });
-      }
+      if (mounted) setState(() { _showForwardRipple = false; _showRewindRipple = false; });
     });
   }
 
@@ -351,9 +210,7 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
     setState(() => _toastMessage = message);
     _toastTimer?.cancel();
     _toastTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() => _toastMessage = null);
-      }
+      if (mounted) setState(() => _toastMessage = null);
     });
   }
 
@@ -376,15 +233,16 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
   void _cycleSpeed() {
     _resetControlsTimer();
     setState(() {
-      if (_playbackSpeed == 1.0) {
-        _playbackSpeed = 1.25;
-      } else if (_playbackSpeed == 1.25) {
+      if (_playbackSpeed == 1.0){
+         _playbackSpeed = 1.25;
+      }else if (_playbackSpeed == 1.25) {
         _playbackSpeed = 1.5;
-      } else if (_playbackSpeed == 1.5) {
-        _playbackSpeed = 2.0;
-      } else {
+      }else if (_playbackSpeed == 1.5){
+       _playbackSpeed = 2.0;
+      }else {
         _playbackSpeed = 1.0;
       }
+      
       _player.setRate(_playbackSpeed);
       _showToast("Speed: ${_playbackSpeed}x");
     });
@@ -419,14 +277,17 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
 
   @override
   void dispose() {
-    _saveTimer?.cancel();
     _controlsTimer?.cancel();
     _toastTimer?.cancel();
     _completedSub?.cancel();
     for (final s in _subscriptions) {
       s.cancel();
     }
-    _player.stop();
+    
+    try {
+      _player.stop();
+    } catch (_) {}
+
     _rustEngine?.dispose();
 
     if (!_isTransitioningToNext) {
@@ -434,9 +295,11 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
       ]);
-
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
+    
+    widget.playerController.dispose();
+
     super.dispose();
   }
 
@@ -450,7 +313,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. VIDEO VIEW
           Center(
             child: Video(
               controller: _videoController,
@@ -494,9 +356,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
             onDoubleTapSeek: (isForward) => _triggerDoubleTapRipple(isForward),
           ),
 
-          // ==========================================
-          // 3. UI OVERLAY LAYER
-          // ==========================================
           Positioned.fill(
             child: IgnorePointer(
               ignoring: !_showControls,
@@ -569,7 +428,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                             if (!_isTransitioningToNext) {
                               setState(() => _isTransitioningToNext = true);
                               _player.pause();
-                              debugPrint("Manual skip triggered.");
 
                               final success = await widget.onNextEpisode!();
                               if (mounted && !success) {
@@ -636,8 +494,9 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                               streamLinks: widget.playerController.streamLinks,
                               selectedStream: widget.playerController.selectedStream,
                               onStreamSelected: (stream) {
-                                _hasSetSubtitle = false;
-                                widget.playerController.selectStream(stream);
+                                // 🛑 NEW: Capture live position and pass it to selectStream so SUB/DUB switches seamlessly!
+                                final currentPos = _player.state.position;
+                                widget.playerController.selectStream(stream, startPosition: currentPos);
                               },
                             ),
                           );

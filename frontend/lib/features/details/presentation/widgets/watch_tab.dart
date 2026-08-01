@@ -9,11 +9,11 @@ import '../../../../shared/models/anime.dart';
 import '../../../../shared/models/episode_metadata.dart';
 import '../../../anime/presentation/widgets/m3_episode_card.dart';
 import '../../../anime/presentation/widgets/release_countdown_card.dart';
+import '../../../history/services/watch_history_service.dart';
 import '../../../player/controllers/player_controller.dart';
 import '../../../player/models/episode.dart';
-import '../../../player/models/stream_link.dart';
 import '../../../player/presentation/screens/glassy_player_screen.dart';
-import '../../../player/presentation/widgets/stream_quality_bottom_sheet.dart';
+import '../../../player/presentation/widgets/stream_loading_dialog.dart';
 import '../../../../core/utils/device_type.dart';
 import '../../../tv/presentation/screens/tv_player_screen.dart';
 
@@ -30,7 +30,6 @@ class _WatchTabState extends State<WatchTab> {
   final String _selectedSource = 'Yugen Play (HLS)';
   Future<List<EpisodeMetadata>>? _episodesFuture;
 
-  //  Chunking State Variables
   int _selectedChunkIndex = 0;
   final int _chunkSize = 24;
 
@@ -43,7 +42,6 @@ class _WatchTabState extends State<WatchTab> {
     _episodesFuture = _fetchEpisodeMetadata();
   }
 
-  // Helper method to split the giant list into manageable chunks
   List<List<EpisodeMetadata>> _getChunks(List<EpisodeMetadata> episodes) {
     List<List<EpisodeMetadata>> chunks = [];
     for (var i = 0; i < episodes.length; i += _chunkSize) {
@@ -84,9 +82,7 @@ class _WatchTabState extends State<WatchTab> {
               if (airDate != null && airDate.isAfter(DateTime.now())) {
                 isAired = false; 
                 
-                // Catch the absolute closest future episode for the countdown
-                // ignore: unnecessary_non_null_assertion
-                if (upcomingEpDate == null || airDate.isBefore(upcomingEpDate!)) {
+                if (upcomingEpDate == null || airDate.isBefore(upcomingEpDate)) {
                   upcomingEpDate = airDate;
                   upcomingEpNum = epNum;
                 }
@@ -99,7 +95,6 @@ class _WatchTabState extends State<WatchTab> {
           }
         }
 
-        // Safely update the UI state with the upcoming episode info
         if (mounted) {
           setState(() {
             _nextEpisodeNumber = upcomingEpNum;
@@ -154,55 +149,25 @@ class _WatchTabState extends State<WatchTab> {
     EpisodeMetadata metadata,
     int totalEpisodes,
   ) async {
-    final playerController = locator<PlayerController>();
-    bool isCancelled = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-                  ),
-                  SizedBox(width: 16),
-                  Text(
-                    "Preparing stream",
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              SizedBox(height: 24),
-              Text(
-                "Fetching fresh stream URLs from source...",
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => isCancelled = true); // 👇 2. Catch manual swipe-backs!
-
     final safeAnilistId = int.tryParse(widget.anime.id) ?? 0;
+    final episodeId = '${widget.anime.title}-ep-${metadata.number}';
+    
+    // 🛑 Robust Episode Number History Matching
+    final historyService = WatchHistoryService();
+    Duration? savedPosition;
+    final savedData = historyService.getHistory(widget.anime.id.toString());
+    if (savedData != null && (savedData['episodeNumber'] == metadata.number || savedData['episodeId'] == episodeId)) {
+      final int posMs = savedData['positionMs'] ?? 0;
+      if (posMs > 0) savedPosition = Duration(milliseconds: posMs);
+    }
 
-    await playerController.fetchStreamsForEpisode(
+    final playerController = locator<PlayerController>();
+
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
       episode: Episode(
-        id: '${widget.anime.title}-ep-${metadata.number}',
+        id: episodeId,
         number: metadata.number,
         title: metadata.title,
         providerId: 'anikoto',
@@ -212,91 +177,48 @@ class _WatchTabState extends State<WatchTab> {
       animeTitle: widget.anime.title,
       posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
       totalEpisodes: widget.anime.episodes,
-    );
-
-    if (!context.mounted) return;
-
-    // 👇 3. If they swiped back, stop everything and don't pop again!
-    if (isCancelled) {
-      debugPrint("User aborted stream fetch.");
-      return; 
-    }
-
-    Navigator.pop(context);
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            playerController.errorMessage ??
-                "No active streams found for this episode.",
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    if (!context.mounted) return;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => StreamQualityBottomSheet(
-        streamLinks: playerController.streamLinks,
-        selectedStream: playerController.selectedStream,
-        onStreamSelected: (StreamLink stream) {
-          playerController.selectStream(stream);
-
-          Future.delayed(const Duration(milliseconds: 250), () {
-            if (!context.mounted) return;
-
-            final String currentEpisodeId = '${widget.anime.title}-ep-${metadata.number}';
-
-            // --- NEW: Traffic Routing ---
-            Widget playerScreen = DeviceType.isTv 
-              ? TvPlayerScreen( // 📺 TV Player
-                  title: '${widget.anime.title} - ${metadata.title}',
-                  quality: stream.quality,
-                  streamUrl: stream.url,
-                  playerController: playerController,
-                  animeId: widget.anime.id.toString(),
-                  episodeId: currentEpisodeId,
-                  episodeNumber: metadata.number,
-                  posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-                  onNextEpisode: metadata.number >= totalEpisodes ? null : () {
-                    final currentStream = playerController.selectedStream;
-                    return _handleAutoPlayNext(
-                      context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
-                      totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
-                    );
-                  },
-                )
-              : GlassyPlayerScreen( // 📱 Mobile Player
-                  title: '${widget.anime.title} - ${metadata.title}',
-                  quality: stream.quality,
-                  streamUrl: stream.url,
-                  playerController: playerController,
-                  animeId: widget.anime.id.toString(),
-                  episodeId: currentEpisodeId,
-                  episodeNumber: metadata.number,
-                  posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-                  onNextEpisode: metadata.number >= totalEpisodes ? null : () {
-                    final currentStream = playerController.selectedStream;
-                    return _handleAutoPlayNext(
-                      context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
-                      totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
-                    );
-                  },
+      startPosition: savedPosition, 
+      onStreamReady: (stream) {
+        Widget playerScreen = DeviceType.isTv 
+          ? TvPlayerScreen(
+              title: '${widget.anime.title} - ${metadata.title}',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController, 
+              animeId: widget.anime.id.toString(),
+              episodeId: episodeId,
+              episodeNumber: metadata.number,
+              posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+              onNextEpisode: metadata.number >= totalEpisodes ? null : () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
+                  totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
                 );
-
-            Navigator.of(context, rootNavigator: true).push(
-              MaterialPageRoute(builder: (_) => playerScreen),
+              },
+            )
+          : GlassyPlayerScreen(
+              title: '${widget.anime.title} - ${metadata.title}',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController, 
+              animeId: widget.anime.id.toString(),
+              episodeId: episodeId,
+              episodeNumber: metadata.number,
+              posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+              onNextEpisode: metadata.number >= totalEpisodes ? null : () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, metadata.number + 1, 'Episode ${metadata.number + 1}', 
+                  totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+                );
+              },
             );
-          });
-        },
-      ),
+
+        Navigator.of(context, rootNavigator: true).push(
+          MaterialPageRoute(builder: (_) => playerScreen),
+        );
+      },
     );
   }
 
@@ -307,7 +229,6 @@ class _WatchTabState extends State<WatchTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Provider Header
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md,
@@ -359,7 +280,6 @@ class _WatchTabState extends State<WatchTab> {
 
           const SizedBox(height: AppSpacing.md),
 
-          // Dynamic Episode List via FutureBuilder
           FutureBuilder<List<EpisodeMetadata>>(
             future: _episodesFuture,
             builder: (context, snapshot) {
@@ -390,15 +310,12 @@ class _WatchTabState extends State<WatchTab> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  
-                  // 🛑 THE ACTUAL INJECTED COUNTDOWN CARD
                   if (_nextEpisodeNumber != null && _nextEpisodeAirDate != null)
                     ReleaseCountdownCard(
                       episodeNumber: _nextEpisodeNumber!,
                       targetDate: _nextEpisodeAirDate!,
                     ),
 
-                  // Title and Episode Count
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -422,7 +339,6 @@ class _WatchTabState extends State<WatchTab> {
 
                   const SizedBox(height: AppSpacing.sm),
 
-                  // The Chunk Selector (Horizontal Scroll)
                   if (chunks.length > 1)
                     SizedBox(
                       height: 40,
@@ -475,7 +391,6 @@ class _WatchTabState extends State<WatchTab> {
 
                   if (chunks.length > 1) const SizedBox(height: AppSpacing.md),
 
-                  // The Episode List (Only renders the current chunk)
                   ListView.separated(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -501,150 +416,78 @@ class _WatchTabState extends State<WatchTab> {
       ),
     );
   }
+
   Future<bool> _handleAutoPlayNext(
     BuildContext context, 
     int nextEpNum, 
     String nextEpTitle, 
     int totalEpisodes,
-    String previousQuality, // 👈 New Parameter
-    String previousSource,  // 👈 New Parameter
+    String previousQuality,
+    String previousSource,
   ) async {
-    final playerController = locator<PlayerController>();
-    
-    // We already know exactly what they were watching because we passed it in!
     final prevWasDub = previousQuality.toLowerCase().contains('dub');
-
-    bool isCancelled = false;
-
-    // 1. Show the Loading Dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: const Color(0xFF14141B),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white10),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(color: AppColors.primary, strokeWidth: 2),
-              ),
-              SizedBox(width: 16),
-              Text(
-                "Loading next episode...",
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((_) => isCancelled = true);
-
-    // 2. Fetch Streams silently for the NEXT episode
+    final safeAnilistId = int.tryParse(widget.anime.id) ?? 0;
     final nextEpisodeId = '${widget.anime.title}-ep-$nextEpNum';
-    await playerController.fetchStreamsForEpisode(
+
+    final playerController = locator<PlayerController>();
+
+    StreamLoadingDialog.show(
+      context,
+      playerController: playerController, 
       episode: Episode(
         id: nextEpisodeId,
         number: nextEpNum,
         title: nextEpTitle,
-        providerId: 'anikoto', 
-        anilistId: int.tryParse(widget.anime.id) ?? 0,
+        providerId: 'anikoto',
+        anilistId: safeAnilistId,
       ),
       animeId: widget.anime.id.toString(),
       animeTitle: widget.anime.title,
       posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
       totalEpisodes: widget.anime.episodes,
-    );
+      autoSelectDub: prevWasDub,
+      onStreamReady: (stream) {
 
-    if (!context.mounted) return false;
-    if (isCancelled) return false;
-    
-    Navigator.pop(context); // Close dialog
-
-    if (playerController.streamLinks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to find streams for Episode $nextEpNum."), backgroundColor: Colors.redAccent),
-      );
-      return false;
-    }
-
-    // 3. The Stream Picker (Simplified & Bulletproof)
-    StreamLink? selectedStream;
-
-    if (previousQuality.isNotEmpty) {
-      // Step A: Filter to strictly Sub or strictly Dub
-      List<StreamLink> candidateStreams = playerController.streamLinks.where((link) {
-        final isDub = link.quality.toLowerCase().contains('dub'); 
-        return prevWasDub ? isDub : !isDub; 
-      }).toList();
-
-      if (candidateStreams.isEmpty) {
-        candidateStreams = playerController.streamLinks;
-      }
-
-      // Step B: Lock onto the EXACT server name (e.g. "VidPlay-1")
-      try {
-        selectedStream = candidateStreams.firstWhere(
-          (link) => link.sourceName.toLowerCase().trim() == previousSource.toLowerCase().trim()
-        );
-      } catch (_) {
-        // If that specific server is down, grab the first available in the correct Sub/Dub category
-        selectedStream = candidateStreams.first;
-      }
-    }
-
-    selectedStream ??= playerController.streamLinks.first;
-    
-    // 🛑 ONLY FIRED ONCE. NO RACE CONDITIONS. 🛑
-    playerController.selectStream(selectedStream);
-
-    // --- NEW: Traffic Routing for Next Episode ---
-    Widget nextPlayerScreen = DeviceType.isTv 
-      ? TvPlayerScreen(
-          title: '${widget.anime.title} - $nextEpTitle',
-          quality: selectedStream.quality,
-          streamUrl: selectedStream.url,
-          playerController: playerController,
-          animeId: widget.anime.id.toString(),
-          episodeId: nextEpisodeId,
-          episodeNumber: nextEpNum,
-          posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-          onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
-            final currentStream = playerController.selectedStream;
-            return _handleAutoPlayNext(
-              context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
-              totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+        Widget nextPlayerScreen = DeviceType.isTv 
+          ? TvPlayerScreen(
+              title: '${widget.anime.title} - $nextEpTitle',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController, 
+              animeId: widget.anime.id.toString(),
+              episodeId: nextEpisodeId,
+              episodeNumber: nextEpNum,
+              posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+              onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
+                  totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+                );
+              },
+            )
+          : GlassyPlayerScreen(
+              title: '${widget.anime.title} - $nextEpTitle',
+              quality: stream.quality,
+              streamUrl: stream.url,
+              playerController: playerController, 
+              animeId: widget.anime.id.toString(),
+              episodeId: nextEpisodeId,
+              episodeNumber: nextEpNum,
+              posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
+              onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
+                final currentStream = playerController.selectedStream;
+                return _handleAutoPlayNext(
+                  context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
+                  totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
+                );
+              },
             );
-          },
-        )
-      : GlassyPlayerScreen(
-          title: '${widget.anime.title} - $nextEpTitle',
-          quality: selectedStream.quality,
-          streamUrl: selectedStream.url,
-          playerController: playerController,
-          animeId: widget.anime.id.toString(),
-          episodeId: nextEpisodeId,
-          episodeNumber: nextEpNum,
-          posterUrl: widget.anime.coverImage ?? widget.anime.bannerImage ?? '',
-          onNextEpisode: nextEpNum >= totalEpisodes ? null : () {
-            final currentStream = playerController.selectedStream;
-            return _handleAutoPlayNext(
-              context, nextEpNum + 1, 'Episode ${nextEpNum + 1}', 
-              totalEpisodes, currentStream?.quality ?? '', currentStream?.sourceName ?? '',
-            );
-          },
-        );
 
-    Navigator.of(context, rootNavigator: true).pushReplacement(
-      MaterialPageRoute(builder: (_) => nextPlayerScreen),
+        Navigator.of(context, rootNavigator: true).pushReplacement(
+          MaterialPageRoute(builder: (_) => nextPlayerScreen),
+        );
+      },
     );
     return true;
   }
