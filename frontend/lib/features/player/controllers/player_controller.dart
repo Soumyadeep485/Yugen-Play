@@ -120,14 +120,13 @@ class PlayerController extends ChangeNotifier {
         }
       }
 
-      // 2. 🚀 NEW: The Ultimate Fallback Sanitizer (Moved UP!)
-      // If MAL-Sync failed, we MUST clean the title before Anikoto sees it.
+      // 2. Fallback Sanitizer
       if (!isMapped) {
         final parts = targetEpisodeId.split('-ep-');
         String safeTitle = parts.first.toLowerCase();
         
-        safeTitle = safeTitle.replaceAll('cour', 'part'); // "Cour 2" -> "part 2"
-        safeTitle = safeTitle.replaceAll('nd season', '2'); // "2nd season" -> "2"
+        safeTitle = safeTitle.replaceAll('cour', 'part');
+        safeTitle = safeTitle.replaceAll('nd season', '2');
         safeTitle = safeTitle.replaceAll('rd season', '3'); 
         safeTitle = safeTitle.replaceAll('th season', ''); 
         
@@ -139,11 +138,14 @@ class PlayerController extends ChangeNotifier {
         debugPrint('🛠️ [Player] MAL-Sync missed. Sanitized ID for Anikoto: $targetEpisodeId');
       }
 
-      // 3. NOW run the primary scraper with the clean ID
+      // 3. Run primary scraper (passes animeTitle as fallback query candidate)
       debugPrint('🎬 [Player] Fetching streams for: $targetEpisodeId');
-      List<StreamLink> links = await _anikotoService.extractStreams(targetEpisodeId);
+      List<StreamLink> links = await _anikotoService.extractStreams(
+        targetEpisodeId, 
+        animeTitle: animeTitle,
+      );
 
-      // 4. If Anikoto completely fails, try the Dynamic Gist
+      // 4. Dynamic Gist fallback if primary yields no links
       if (links.isEmpty) {
         debugPrint('⚠️ [Player] Primary scraper failed. Trying Dynamic Gist...');
         final dynamicStream = await _dynamicService.extractDynamicStream(
