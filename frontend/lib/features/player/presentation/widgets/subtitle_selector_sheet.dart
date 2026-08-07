@@ -37,7 +37,6 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
     final player = widget.playerController.player;
     final currentTrack = player.state.track.subtitle;
     
-    // 🛑 NEW: Use the explicitly extracted subtitles just like the TV player!
     final availableSubtitles = widget.playerController.selectedStream?.subtitles ?? [];
     
     // Determine if subtitles are currently turned off
@@ -48,6 +47,10 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: Container(
+        // Set a max height so the bottom sheet doesn't take over the entire screen
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: const Color(0xFF14141B).withValues(alpha: 0.85),
@@ -102,69 +105,85 @@ class _SubtitleSelectorSheetState extends State<SubtitleSelectorSheet> {
             const SizedBox(height: 12),
 
             // TAB 1: TRACK LIST
-            if (!_showSettings) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  Icons.subtitles_off_rounded,
-                  color: isOff ? AppColors.primary : Colors.white54,
-                ),
-                title: Text(
-                  "Off",
-                  style: TextStyle(
-                    color: isOff ? AppColors.primary : AppColors.textPrimary,
-                    fontWeight: isOff ? FontWeight.bold : FontWeight.normal,
+            if (!_showSettings)
+              // 🚀 THE FIX: Flexible + SingleChildScrollView makes the long list scrollable!
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 🚀 THE FIX: Material wrapper kills the ripple-effect log warnings
+                      Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.subtitles_off_rounded,
+                            color: isOff ? AppColors.primary : Colors.white54,
+                          ),
+                          title: Text(
+                            "Off",
+                            style: TextStyle(
+                              color: isOff ? AppColors.primary : AppColors.textPrimary,
+                              fontWeight: isOff ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          trailing: isOff
+                              ? const Icon(Icons.check_circle_rounded, color: AppColors.primary)
+                              : null,
+                          onTap: () {
+                            player.setSubtitleTrack(mk.SubtitleTrack.no());
+                            Navigator.pop(context);
+                          },
+                        ),
+                      ),
+                      
+                      ...availableSubtitles.map((sub) {
+                        final subJson = sub.toJson();
+                        final subUrl = subJson['url']?.toString() ?? subJson['file']?.toString() ?? '';
+                        final subLabel = subJson['label']?.toString() ?? 'English';
+                        
+                        // Match the active track against our URI injections
+                        final isSelected = !isOff && (currentTrack.title == subLabel || currentTrack.id == subUrl);
+
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              Icons.subtitles_rounded,
+                              color: isSelected ? AppColors.primary : Colors.white54,
+                            ),
+                            title: Text(
+                              subLabel.isNotEmpty ? subLabel : "English",
+                              style: TextStyle(
+                                color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                            trailing: isSelected
+                                ? const Icon(Icons.check_circle_rounded, color: AppColors.primary)
+                                : null,
+                            onTap: () {
+                              player.setSubtitleTrack(mk.SubtitleTrack.uri(subUrl, title: subLabel, language: 'en'));
+                              Navigator.pop(context);
+                            },
+                          ),
+                        );
+                      }),
+
+                      if (availableSubtitles.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: Text(
+                            "No external subtitles found for this stream.",
+                            style: TextStyle(color: Colors.white54, fontSize: 14),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                trailing: isOff
-                    ? const Icon(Icons.check_circle_rounded, color: AppColors.primary)
-                    : null,
-                onTap: () {
-                  player.setSubtitleTrack(mk.SubtitleTrack.no());
-                  Navigator.pop(context);
-                },
               ),
-              
-              ...availableSubtitles.map((sub) {
-                final subJson = sub.toJson();
-                final subUrl = subJson['url']?.toString() ?? subJson['file']?.toString() ?? '';
-                final subLabel = subJson['label']?.toString() ?? 'English';
-                
-                // Match the active track against our URI injections
-                final isSelected = !isOff && (currentTrack.title == subLabel || currentTrack.id == subUrl);
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.subtitles_rounded,
-                    color: isSelected ? AppColors.primary : Colors.white54,
-                  ),
-                  title: Text(
-                    subLabel.isNotEmpty ? subLabel : "English",
-                    style: TextStyle(
-                      color: isSelected ? AppColors.primary : AppColors.textPrimary,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  trailing: isSelected
-                      ? const Icon(Icons.check_circle_rounded, color: AppColors.primary)
-                      : null,
-                  onTap: () {
-                    player.setSubtitleTrack(mk.SubtitleTrack.uri(subUrl, title: subLabel, language: 'en'));
-                    Navigator.pop(context);
-                  },
-                );
-              }),
-
-              if (availableSubtitles.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16.0),
-                  child: Text(
-                    "No external subtitles found for this stream.",
-                    style: TextStyle(color: Colors.white54, fontSize: 14),
-                  ),
-                ),
-            ],
 
             // TAB 2: SUBTITLE SETTINGS
             if (_showSettings) ...[

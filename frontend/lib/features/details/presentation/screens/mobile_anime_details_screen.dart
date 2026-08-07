@@ -56,9 +56,8 @@ class _AnimeDetailsScreenState extends State<MobileAnimeDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 🚀 Fallback image priority: Banner -> Cover Image -> Empty
-    final bgImageUrl = widget.anime.coverImage ?? widget.anime.bannerImage ?? '';
-
+    // Proper priority: Landscape Banner -> Vertical Cover -> Empty
+    final bgImageUrl = widget.anime.bannerImage ?? widget.anime.coverImage ?? '';
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(

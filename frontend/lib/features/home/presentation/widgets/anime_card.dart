@@ -55,6 +55,11 @@ class _AnimeCardState extends State<AnimeCard> {
                       child: Image.network(
                         widget.anime.coverImage ?? '',
                         fit: BoxFit.cover,
+                        // Trick MyAnimeList's CDN into allowing the image load
+                        headers: const {
+                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                          'Referer': 'https://myanimelist.net/',
+                        },
                         errorBuilder: (context, error, stackTrace) => Container(
                           color: AppColors.card,
                           child: const Icon(

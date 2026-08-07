@@ -1,4 +1,3 @@
-import 'package:frontend/features/extensions/services/dynamic_extension_service.dart';
 import 'package:get_it/get_it.dart';
 
 import 'core/network/anilist_client.dart';
@@ -66,11 +65,6 @@ void setupServiceLocator() {
       mappingService: getIt<MappingService>(),
     ),
   );
-
-  locator.registerLazySingleton<DynamicExtensionService>(
-    () => DynamicExtensionService(),
-  );
-
   getIt.registerFactory<PlayerController>(
     () => PlayerController(
       repository: getIt<PlayerRepository>(),

@@ -15,6 +15,8 @@ import '../../../home/controllers/home_provider.dart';
 import '../../../player/controllers/player_controller.dart';
 import '../../../player/models/episode.dart';
 import '../../../player/presentation/widgets/stream_loading_dialog.dart';
+// 🚀 THE FIX: Import the Extension Manager to fetch the dynamic provider
+import '../../../player/services/extension_manager.dart';
 import '../widgets/tv_update_dialog.dart';
 import 'tv_anime_details_screen.dart';
 import 'tv_player_screen.dart';
@@ -387,6 +389,10 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
     final nextEpisodeId = '$animeTitle-ep-$nextEpNum';
 
     final playerController = locator<PlayerController>();
+    
+    // 🚀 THE FIX: Dynamically grab the active extension so it's immune to hardcoding
+    final extManager = locator<ExtensionManager>();
+    final activeProviderId = extManager.activeExtensions.keys.firstOrNull ?? 'anikoto';
 
     StreamLoadingDialog.show(
       context,
@@ -395,7 +401,7 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
         id: nextEpisodeId,
         number: nextEpNum,
         title: 'Episode $nextEpNum',
-        providerId: 'anikoto',
+        providerId: activeProviderId, // 🚀 DYNAMIC PROVIDER
         anilistId: int.tryParse(animeId) ?? 0,
       ),
       animeId: animeId,
@@ -403,7 +409,6 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
       posterUrl: poster,
       autoSelectDub: prevWasDub,
       onStreamReady: (stream) {
-
         Navigator.of(context, rootNavigator: true).pushReplacement(
           MaterialPageRoute(
             builder: (_) => TvPlayerScreen(
@@ -444,6 +449,10 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
     final savedPosition = Duration(milliseconds: int.tryParse(item['positionMs'].toString()) ?? 0);
 
     final playerController = locator<PlayerController>();
+    
+    // 🚀 THE FIX: Safely fallback to the active extension
+    final extManager = locator<ExtensionManager>();
+    final activeProviderId = item['providerId']?.toString() ?? extManager.activeExtensions.keys.firstOrNull ?? 'anikoto';
 
     StreamLoadingDialog.show(
       context,
@@ -452,7 +461,7 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
         id: episodeId,
         number: epNum,
         title: 'Episode $epNum',
-        providerId: 'anikoto',
+        providerId: activeProviderId, // 🚀 DYNAMIC PROVIDER
         anilistId: int.tryParse(animeId) ?? 0,
       ),
       animeId: animeId,
@@ -460,7 +469,6 @@ class _TvContinueWatchingSectionState extends State<_TvContinueWatchingSection> 
       posterUrl: poster,
       startPosition: savedPosition,
       onStreamReady: (stream) {
-
         Navigator.of(context, rootNavigator: true).push(
           MaterialPageRoute(
             builder: (_) => TvPlayerScreen(

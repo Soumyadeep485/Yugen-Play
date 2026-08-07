@@ -4,6 +4,7 @@ analyzer:
   exclude:
     - "rust_builder/**"
     - "lib/src/rust/frb_generated*.dart"
+    - "**/*.g.dart"
 
 linter:
   rules:

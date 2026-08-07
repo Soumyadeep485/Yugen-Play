@@ -1,181 +1,155 @@
 import 'dart:async';
 import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_js/flutter_js.dart';
-
-import '../../../../core/network/interceptors/user_agent_interceptor.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class JsRuntimeProvider {
-  late JavascriptRuntime _runtime;
-  late Dio _dio;
+  HeadlessInAppWebView? _headlessWebView;
+  final Dio _dio = Dio();
   bool _isInitialized = false;
+  final Completer<void> _initCompleter = Completer<void>();
 
-  JsRuntimeProvider() {
-    // Setup a dedicated Dio client with our Cloudflare bypass interceptor
-    _dio = Dio();
-    _dio.interceptors.add(UserAgentInterceptor());
-    
-    // 🚀 TV PERFORMANCE FIX: Delay engine initialization by 3 seconds
-    // so it doesn't block the UI thread on weak TV hardware during cold boot.
-    Future.delayed(const Duration(seconds: 3), () => _initEngine());
+  final Map<int, Completer<String>> _pendingCalls = {};
+  int _callIdCounter = 0;
+
+  void init() {
+    _initEngine();
   }
 
-  void _initEngine() {
+  Future<void> _initEngine() async {
     if (_isInitialized) return;
-    
-    try {
-      _runtime = getJavascriptRuntime();
 
-      _runtime.evaluate('''
-        var console = {
-          log: function(msg) { sendMessage('consoleLog', JSON.stringify(msg)); },
-          error: function(msg) { sendMessage('consoleError', JSON.stringify(msg)); }
-        };
-      ''');
+    _headlessWebView = HeadlessInAppWebView(
+      initialData: InAppWebViewInitialData(data: "<!DOCTYPE html><html><body></body></html>"),
+      initialSettings: InAppWebViewSettings(
+        javaScriptEnabled: true,
+      ),
+      onWebViewCreated: (controller) {
+        debugPrint("✅ [WebView] Headless engine created. Registering Dart Bridge...");
 
-      _runtime.onMessage(
-        'consoleLog',
-        (dynamic args) => debugPrint('🔵 [JS]: $args'),
-      );
-      _runtime.onMessage(
-        'consoleError',
-        (dynamic args) => debugPrint('🔴 [JS Error]: $args'),
-      );
-
-      _injectAsyncHttpBridge();
-
-      _isInitialized = true;
-      debugPrint("✅ JS Runtime Engine initialized with Async Support.");
-    } catch (e) {
-      debugPrint("❌ Failed to initialize JS Runtime: $e");
-    }
-  }
-
-  // 🚀 Ensure engine is ready before evaluation calls
-  Future<void> _ensureInitialized() async {
-    if (!_isInitialized) {
-      _initEngine();
-    }
-  }
-
-  void _injectAsyncHttpBridge() {
-    // 1. Listen for the JS trigger
-    _runtime.onMessage('dartFetch', (dynamic args) {
-      final Map<String, dynamic> request = jsonDecode(args as String);
-      final int id = request['id'];
-      final String url = request['url'];
-      final String method = request['method'] ?? 'GET';
-
-      // Fire the network call asynchronously so we don't block the JS thread
-      _performAsyncFetch(id, url, method);
-      return null;
-    });
-
-    // 2. Inject the Promise-based fetch function into the JS context
-    _runtime.evaluate('''
-      var _fetchCallbacks = {};
-      var _fetchId = 0;
-
-      function nativeFetch(url, options = {}) {
-        return new Promise((resolve, reject) => {
-          const id = ++_fetchId;
-          _fetchCallbacks[id] = { resolve, reject };
-          sendMessage('dartFetch', JSON.stringify({ id: id, url: url, method: options.method || 'GET' }));
-        });
-      }
-
-      function resolveFetch(id, data, isError) {
-        if (_fetchCallbacks[id]) {
-          if (isError) {
-            _fetchCallbacks[id].reject(data);
-          } else {
-            _fetchCallbacks[id].resolve(data);
+        // 1. The Upgraded Network Handler (Now accepts custom headers!)
+        controller.addJavaScriptHandler(handlerName: 'dartFetch', callback: (args) async {
+          try {
+            String url = args[0];
+            
+            // Extract headers if JS provided them
+            Map<String, String> customHeaders = {};
+            if (args.length > 1 && args[1] != null) {
+              customHeaders = Map<String, String>.from(args[1] as Map);
+            }
+            
+            debugPrint("🌐 [Dart Fetch] Requesting: $url");
+            
+            final response = await _dio.get(
+              url,
+              options: Options(
+                responseType: ResponseType.plain,
+                validateStatus: (status) => true,
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                  ...customHeaders, // 🚀 Inject JS headers here!
+                },
+              ),
+            );
+            
+            debugPrint("✅ [Dart Fetch] Success! Size: ${response.data.toString().length} bytes");
+            return response.data.toString(); 
+          } catch (e) {
+            debugPrint("🚨 [Dart Fetch] Error: $e");
+            throw Exception(e.toString());
           }
-          delete _fetchCallbacks[id];
+        });
+
+        // 2. The Result Handler
+        controller.addJavaScriptHandler(handlerName: 'jsCallResult', callback: (args) {
+          try {
+            final int callId = args[0];
+            final String resultPayload = args[1];
+            
+            if (_pendingCalls.containsKey(callId)) {
+              _pendingCalls[callId]!.complete(resultPayload);
+              _pendingCalls.remove(callId);
+            }
+          } catch (e) {
+            debugPrint('🚨 [JS Bridge] jsCallResult error: $e');
+          }
+        });
+      },
+      onConsoleMessage: (controller, consoleMessage) {
+        debugPrint("🔵 [WebView JS]: ${consoleMessage.message}");
+      },
+      onLoadStop: (controller, url) async {
+        debugPrint("✅ [WebView] Base DOM loaded. Injecting polyfills...");
+        
+        // 🚀 Polyfill updated to pass headers to Dart
+        await controller.evaluateJavascript(source: '''
+          window.nativeFetch = async function(url, headers = {}) {
+            return await window.flutter_inappwebview.callHandler('dartFetch', url, headers);
+          };
+        ''');
+        
+        if (!_initCompleter.isCompleted) {
+          _initCompleter.complete();
         }
-      }
-    ''');
+        _isInitialized = true;
+        debugPrint("✅ [WebView] JS Runtime is ready for action!");
+      },
+    );
+
+    await _headlessWebView?.run();
   }
 
-  Future<void> _performAsyncFetch(int id, String url, String method) async {
-    try {
-      debugPrint('🌐 [JS Bridge] Fetching real data from: $url');
-      final response = await _dio.request(
-        url,
-        options: Options(method: method),
-      );
-
-      final responseData = response.data is String
-          ? response.data
-          : jsonEncode(response.data);
-
-      // Base64 encode the HTML/JSON so stray quotes and newlines don't crash the evaluator
-      final base64Data = base64Encode(utf8.encode(responseData));
-
-      _runtime.evaluate('''
-        try {
-          const decoded = decodeURIComponent(escape(atob('$base64Data')));
-          resolveFetch($id, decoded, false);
-        } catch(e) {
-          resolveFetch($id, "Base64 Decode Error: " + e.message, true);
-        }
-      ''');
-    } catch (e) {
-      debugPrint('⚠️ [JS Bridge] Network Error: $e');
-      _runtime.evaluate(
-        "resolveFetch($id, '${e.toString().replaceAll("'", "\\'")}', true);",
-      );
-    }
+  Future<void> evaluateScript(String script) async {
+    await _initCompleter.future;
+    await _headlessWebView?.webViewController?.evaluateJavascript(source: script);
   }
 
-  void evaluateScript(String script) {
-    if (!_isInitialized) _initEngine();
-    final result = _runtime.evaluate(script);
-    if (result.isError) debugPrint("❌ JS Error: ${result.stringResult}");
-  }
+  Future<dynamic> callAsyncFunction(String functionName, List<dynamic> args) async {
+    await _initCompleter.future;
 
-  /// Evaluates an asynchronous JS function and awaits the Promise resolution in Dart
-  Future<dynamic> callAsyncFunction(
-    String functionName,
-    List<dynamic> args,
-  ) async {
-    await _ensureInitialized(); // 🚀 Wait if engine hasn't spun up yet
+    final int callId = ++_callIdCounter;
+    final completer = Completer<String>();
+    _pendingCalls[callId] = completer;
 
-    final completer = Completer<dynamic>();
-    final callId = DateTime.now().millisecondsSinceEpoch.toString();
-
-    // Setup a one-time listener to catch the promise resolution
-    _runtime.onMessage('resolveAsync_$callId', (dynamic result) {
-      if (!completer.isCompleted) completer.complete(result);
-    });
-
-    final argsString = jsonEncode(args);
-
-    // Wrap the call in an async IIFE
-    final script =
-        '''
+    final String argsJson = jsonEncode(args);
+    
+    final String script = '''
       (async function() {
         try {
-          const result = await $functionName.apply(null, $argsString);
-          sendMessage('resolveAsync_$callId', JSON.stringify(result));
-        } catch (error) {
-          sendMessage('resolveAsync_$callId', JSON.stringify({ error: error.toString() }));
+          const fn = $functionName;
+          if (typeof fn !== 'function') throw new Error("$functionName is not a function");
+          
+          const result = await fn.apply(null, $argsJson);
+          const payload = JSON.stringify({ "success": true, "data": result });
+          
+          window.flutter_inappwebview.callHandler('jsCallResult', $callId, payload);
+        } catch (err) {
+          const payload = JSON.stringify({ "success": false, "error": String(err) });
+          window.flutter_inappwebview.callHandler('jsCallResult', $callId, payload);
         }
       })();
     ''';
 
-    _runtime.evaluate(script);
-
-    // If the JS hangs, we don't want the UI to spin forever
-    return completer.future.timeout(
-      const Duration(seconds: 15),
-      onTimeout: () => jsonEncode({'error': 'JS Execution Timed Out'}),
-    );
-  }
-
-  void dispose() {
-    _runtime.dispose();
+    debugPrint("⚙️ [WebView] Executing $functionName (ID: $callId)...");
+    
+    _headlessWebView?.webViewController?.evaluateJavascript(source: script);
+    
+    final String finalResult = await completer.future;
+    
+    try {
+      final Map<String, dynamic> parsed = jsonDecode(finalResult);
+      
+      if (parsed['success'] == true) {
+         debugPrint("✅ [WebView] Execution successful!");
+         return jsonEncode(parsed['data']); 
+      } else {
+         debugPrint("🚨 [WebView] Extension Error: \${parsed['error']}");
+         return jsonEncode({ "error": parsed['error'] });
+      }
+    } catch (e) {
+      debugPrint("🚨 [WebView] Engine Crash: $e");
+      return jsonEncode({ "error": e.toString() });
+    }
   }
 }

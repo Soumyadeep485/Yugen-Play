@@ -14,6 +14,10 @@
 **/*_extension_service.dart
 **/crypto/
 **/keys/
+**/extension_manager.dart
+**/extension_provider.dart
+**/js_extension_adapter.dart
+**/extensions_screen.dart
 
 # ==========================================================
 # Flutter & Dart

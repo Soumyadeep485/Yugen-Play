@@ -49,15 +49,34 @@ class Anime {
       parsedGenres = (json['genres'] as List).map((e) => e.toString()).toList();
     }
 
+    // 🚀 THE PROXY SANITIZER
+    // If the image comes from MyAnimeList, we route it through a caching proxy
+    // to completely bypass their 403 Forbidden hotlink protection.
+    String sanitizeUrl(String? url) {
+      if (url == null || url.isEmpty) return '';
+      if (url.contains('myanimelist.net')) {
+        return 'https://wsrv.nl/?url=$url';
+      }
+      return url;
+    }
+
+    // Resolve the best available cover image and sanitize it
+    final bestCoverImage = sanitizeUrl(
+      coverMap?['extraLarge'] ??
+      coverMap?['large'] ??
+      coverMap?['medium'] ??
+      json['coverImage']?.toString()
+    );
+
+    final rawBanner = json['bannerImage']?.toString();
+
     return Anime(
       id: json['id']?.toString() ?? '',
       idMal: json['idMal'] as int?,
       title: titleString,
-      coverImage:
-          coverMap?['large'] ??
-          coverMap?['medium'] ??
-          json['coverImage']?.toString(),
-      bannerImage: json['bannerImage']?.toString(),
+      coverImage: bestCoverImage,
+      // If banner is missing, fallback to the sanitized cover image!
+      bannerImage: rawBanner != null ? sanitizeUrl(rawBanner) : bestCoverImage,
       rating: (json['averageScore'] as num?)?.toDouble(),
       episodes: json['episodes'] as int?,
       status: json['status']?.toString(),

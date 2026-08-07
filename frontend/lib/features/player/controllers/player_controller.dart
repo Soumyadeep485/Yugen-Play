@@ -1,20 +1,24 @@
 import 'dart:async';
-import 'package:dio/dio.dart'; 
-import '../../library/services/library_service.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:frontend/features/extensions/services/anikoto_extension_service.dart';
-import 'package:frontend/features/extensions/services/dynamic_extension_service.dart';
-import 'package:frontend/features/history/services/watch_history_service.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'package:frontend/features/player/services/extension_manager.dart'; 
+import '../../library/services/library_service.dart';
+import 'package:frontend/features/history/services/watch_history_service.dart';
+import '../../../../service_locator.dart';
 import '../models/episode.dart';
 import '../models/stream_link.dart';
+// 🚀 THE FIX: We alias your local model so it stops clashing with media_kit!
+import '../models/subtitle_track.dart' as app_model; 
 import '../services/player_repository.dart';
 import '../services/plugin_manager.dart';
 import '../services/plugin_registry.dart';
 import '../../anime/services/anime_mapping_service.dart'; 
+
+import 'package:frontend/features/player/services/local_stream_proxy.dart';
 
 final playerControllerProvider = Provider<PlayerController>((ref) {
   throw UnimplementedError('Initialize this with your dependencies');
@@ -25,14 +29,11 @@ class PlayerController extends ChangeNotifier {
   final PluginRegistry pluginRegistry;
   final PluginManager pluginManager;
 
-  final AnikotoExtensionService _anikotoService = AnikotoExtensionService();
-  final DynamicExtensionService _dynamicService = DynamicExtensionService();
   final WatchHistoryService _historyService = WatchHistoryService();
   final LibraryService _libraryService = LibraryService();
   final AnimeMappingService _mappingService = AnimeMappingService(); 
 
   List<StreamLink> _streamLinks = [];
-  List<ServerData> _rawServers = [];
   StreamLink? _selectedStream;
   Episode? _selectedEpisode;
   bool _isLoading = false;
@@ -44,7 +45,6 @@ class PlayerController extends ChangeNotifier {
   StreamSubscription? _durationSubscription;
   StreamSubscription? _playingSubscription;
 
-  // AniSkip State Variables
   Duration? _introStart;
   Duration? _introEnd;
   Duration? _outroStart;
@@ -67,10 +67,11 @@ class PlayerController extends ChangeNotifier {
   }) {
     player = Player();
     videoController = VideoController(player);
+    
+    LocalStreamProxy().start(); 
   }
 
   List<StreamLink> get streamLinks => _streamLinks;
-  List<ServerData> get rawServers => _rawServers;
   StreamLink? get selectedStream => _selectedStream;
   Episode? get selectedEpisode => _selectedEpisode;
   bool get isLoading => _isLoading;
@@ -108,16 +109,6 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  void setDiscoveredServers(List<ServerData> servers) {
-    _rawServers = servers;
-    notifyListeners();
-  }
-
-  void updateStreamLinks(List<StreamLink> links) {
-    _streamLinks = links;
-    notifyListeners();
-  }
-
   void addStreamLink(StreamLink link) {
     if (!_streamLinks.any((s) => s.url == link.url)) {
       _streamLinks.add(link);
@@ -125,93 +116,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  Future<List<ServerData>> fetchRawServersForEpisode({
-    required Episode episode,
-    required String animeId,
-    required String animeTitle,
-    required String posterUrl,
-    int? totalEpisodes,
-  }) async {
-    _selectedEpisode = episode;
-    _currentAnimeId = animeId;
-    _currentAnimeTitle = animeTitle;
-    _currentPosterUrl = posterUrl;
-    _currentTotalEpisodes = totalEpisodes;
-    _hasMarkedCompleted = false;
-    _hasMarkedWatching = false;
-
-    _introStart = null;
-    _introEnd = null;
-    _outroStart = null;
-    _outroEnd = null;
-    _hasFetchedSkipTimes = false;
-
-    String targetEpisodeId = episode.id;
-    bool isMapped = false;
-
-    if (episode.anilistId > 0) {
-      final mappedSlug = await _mappingService.getExactSlug(episode.anilistId);
-      if (mappedSlug != null && mappedSlug.isNotEmpty) {
-        targetEpisodeId = '$mappedSlug-ep-${episode.number}';
-        isMapped = true;
-      }
-    }
-
-    if (!isMapped) {
-      final parts = targetEpisodeId.split('-ep-');
-      String safeTitle = parts.first.toLowerCase();
-      
-      safeTitle = safeTitle.replaceAll('cour', 'part');
-      safeTitle = safeTitle.replaceAll('nd season', '2');
-      safeTitle = safeTitle.replaceAll('rd season', '3'); 
-      safeTitle = safeTitle.replaceAll('th season', ''); 
-      
-      safeTitle = safeTitle
-          .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-          .replaceAll(RegExp(r'^-+|-+$'), '');
-
-      targetEpisodeId = '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
-    }
-
-    final servers = await _anikotoService.fetchRawServers(
-      targetEpisodeId,
-      animeTitle: animeTitle,
-    );
-    setDiscoveredServers(servers);
-    return servers;
-  }
-
-  Future<StreamLink?> raceServers(List<ServerData> servers) async {
-    if (servers.isEmpty) return null;
-
-    final completer = Completer<StreamLink?>();
-    int failedCount = 0;
-
-    for (final server in servers) {
-      _anikotoService.extractFromSingleServer(server).then((stream) {
-        if (stream != null) {
-          addStreamLink(stream);
-          if (!completer.isCompleted) {
-            completer.complete(stream);
-          }
-        } else {
-          failedCount++;
-          if (failedCount == servers.length && !completer.isCompleted) {
-            completer.complete(null);
-          }
-        }
-      }).catchError((err) {
-        failedCount++;
-        if (failedCount == servers.length && !completer.isCompleted) {
-          completer.complete(null);
-        }
-      });
-    }
-
-    return completer.future;
-  }
-
-  Future<void> fetchStreamsForEpisode({
+  Future<List<StreamLink>> loadStreamsForEpisode({
     required Episode episode,
     required String animeId,
     required String animeTitle,
@@ -241,57 +146,40 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      String targetEpisodeId = episode.id;
-      bool isMapped = false;
+      final extManager = locator<ExtensionManager>();
+      final activeExtension = extManager.activeExtensions[episode.providerId];
 
-      if (episode.anilistId > 0) {
+      if (activeExtension == null) {
+        _errorMessage = 'Extension ${episode.providerId} is not installed or active.';
+        notifyListeners();
+        return [];
+      }
+
+      String targetEpisodeId = episode.id;
+
+      if (episode.anilistId > 0 && !targetEpisodeId.contains('-ep-')) {
         final mappedSlug = await _mappingService.getExactSlug(episode.anilistId);
         if (mappedSlug != null && mappedSlug.isNotEmpty) {
           targetEpisodeId = '$mappedSlug-ep-${episode.number}';
-          isMapped = true;
         }
       }
 
-      if (!isMapped) {
-        final parts = targetEpisodeId.split('-ep-');
-        String safeTitle = parts.first.toLowerCase();
-        
-        safeTitle = safeTitle.replaceAll('cour', 'part');
-        safeTitle = safeTitle.replaceAll('nd season', '2');
-        safeTitle = safeTitle.replaceAll('rd season', '3'); 
-        safeTitle = safeTitle.replaceAll('th season', ''); 
-        
-        safeTitle = safeTitle
-            .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-            .replaceAll(RegExp(r'^-+|-+$'), '');
-
-        targetEpisodeId = '$safeTitle-ep-${parts.length > 1 ? parts.last : '1'}';
-      }
-
-      List<StreamLink> links = await _anikotoService.extractStreams(
-        targetEpisodeId, 
-        animeTitle: animeTitle,
-      );
-
-      if (links.isEmpty) {
-        final dynamicStream = await _dynamicService.extractDynamicStream(
-          embedUrl: 'https://vidtube.site/e/$targetEpisodeId',
-          cipherText: targetEpisodeId,
-        );
-        if (dynamicStream != null) links.add(dynamicStream);
-      }
-
+      final links = await activeExtension.extractStreams(targetEpisodeId, animeTitle: animeTitle);
       _streamLinks = links;
 
-      if (links.isNotEmpty) {
-        _selectedStream = null;
-      } else {
-        _errorMessage = 'No streams found for this episode.';
-        notifyListeners();
+      if (links.isEmpty) {
+        _errorMessage = 'No streams found from ${activeExtension.name}.';
       }
+      
+      _isLoading = false;
+      notifyListeners();
+      return links;
+
     } catch (e) {
       _errorMessage = 'An error occurred while fetching streams.';
+      _isLoading = false;
       notifyListeners();
+      return [];
     }
   }
 
@@ -300,7 +188,6 @@ class PlayerController extends ChangeNotifier {
 
     try {
       final dio = Dio();
-      
       final alRes = await dio.post(
         'https://graphql.anilist.co',
         data: {
@@ -354,22 +241,69 @@ class PlayerController extends ChangeNotifier {
   }
 
   void selectStream(StreamLink stream, {Duration? startPosition}) {
-    _selectedStream = stream;
-    addStreamLink(stream);
+    final headers = Map<String, String>.from(stream.headers);
+    final proxiedVideoUrl = LocalStreamProxy().getProxyUrl(stream.url, headers);
+    
+    final proxiedSubtitles = stream.subtitles.map((sub) {
+      if (sub.url.startsWith('http')) {
+        // 🚀 THE FIX: Use our new 'app_model' alias here so Dart doesn't cry
+        return app_model.SubtitleTrack(
+          id: sub.id,
+          label: sub.label,
+          url: LocalStreamProxy().getProxyUrl(sub.url, headers),
+          language: sub.language,
+          isDefault: sub.isDefault,
+        );
+      }
+      return sub;
+    }).toList();
+
+    final proxiedStream = stream.copyWith(
+      url: proxiedVideoUrl,
+      subtitles: proxiedSubtitles,
+    );
+
+    _selectedStream = proxiedStream;
+    addStreamLink(proxiedStream);
     _isLoading = false;
     notifyListeners();
 
-    final media = Media(stream.url, httpHeaders: stream.headers);
-
     try {
-      player.setSubtitleTrack(SubtitleTrack.no());
-    } catch (e) {
-      debugPrint('⚠️ [Player] Subtitle set to OFF fallback: $e');
-    }
+      (player.platform as dynamic)?.setProperty('osd-level', '0');
+    } catch (_) {}
 
+    final media = Media(proxiedStream.url);
     player.open(media);
 
-    // 🛑 Synchronous Anti-Distortion Seek with 300ms Demuxer Buffer
+    if (proxiedStream.subtitles.isNotEmpty) {
+      try {
+        final bestSub = proxiedStream.subtitles.firstWhere(
+          (s) {
+            final label = s.label.toLowerCase(); 
+            return label.contains('eng') || label.contains('en');
+          },
+          orElse: () => proxiedStream.subtitles.first,
+        );
+        
+        Future.delayed(const Duration(milliseconds: 500), () {
+          try {
+            // Notice how this one still uses media_kit's SubtitleTrack natively!
+            player.setSubtitleTrack(SubtitleTrack.uri(bestSub.url));
+            debugPrint('✅ [Player] Auto-loaded external subtitle: ${bestSub.label}');
+          } catch (e) {
+            debugPrint('⚠️ [Player] Delayed subtitle load failed: $e');
+          }
+        });
+        
+      } catch (e) {
+        debugPrint('⚠️ [Player] Failed to load external subtitle: $e');
+        player.setSubtitleTrack(SubtitleTrack.auto()); 
+      }
+    } else {
+      debugPrint('ℹ️ [Player] No external subtitles found. Falling back to embedded tracks.');
+      player.setSubtitleTrack(SubtitleTrack.auto()); 
+    }
+
     if (startPosition != null && startPosition.inMilliseconds > 2000) {
       StreamSubscription? safeSeekSub;
       safeSeekSub = player.stream.duration.listen((duration) {
@@ -471,11 +405,13 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _forceSaveHistory();
-
     _playingSubscription?.cancel();
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     player.dispose();
+    
+    LocalStreamProxy().stop();
+    
     super.dispose();
   }
 }

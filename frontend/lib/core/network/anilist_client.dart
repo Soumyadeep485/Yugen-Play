@@ -14,6 +14,10 @@ class AniListClient {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          // Spoofing a standard desktop browser to bypass Cloudflare's bot protection
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://anilist.co',
+          'Referer': 'https://anilist.co/',
         },
       ),
     );
@@ -53,7 +57,8 @@ class AniListClient {
           'CRITICAL: You hit the AniList Rate Limit (90 requests/min). Slow down.',
         );
       } else {
-        debugPrint('Network Error: ${e.message}');
+        // Now prints the actual response data so Cloudflare errors don't hide
+        debugPrint('Network Error [${e.response?.statusCode}]: ${e.message}\nResponse Data: ${e.response?.data}');
       }
       return null;
     } catch (e) {

@@ -19,7 +19,7 @@ import '../../../../core/colors/app_colors.dart';
 import '../../../../src/rust/api/torrent.dart';
 import '../../controllers/player_controller.dart';
 import '../widgets/subtitle_selector_sheet.dart';
-import '../widgets/stream_quality_bottom_sheet.dart'; // 👈 Needed for switching quality
+import '../widgets/stream_quality_bottom_sheet.dart'; 
 
 class GlassyPlayerScreen extends StatefulWidget {
   final String title;
@@ -494,7 +494,6 @@ class _GlassyPlayerScreenState extends State<GlassyPlayerScreen> {
                               streamLinks: widget.playerController.streamLinks,
                               selectedStream: widget.playerController.selectedStream,
                               onStreamSelected: (stream) {
-                                // 🛑 NEW: Capture live position and pass it to selectStream so SUB/DUB switches seamlessly!
                                 final currentPos = _player.state.position;
                                 widget.playerController.selectStream(stream, startPosition: currentPos);
                               },

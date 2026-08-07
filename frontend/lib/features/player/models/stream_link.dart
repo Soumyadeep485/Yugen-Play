@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'audio_track.dart';
 import 'subtitle_track.dart';
 
@@ -73,18 +74,42 @@ class StreamLink {
       );
     }
 
+    // 🚀 THE FIX: Accept Map<dynamic, dynamic> from JS, then cast to Map<String, dynamic>
+    List<SubtitleTrack> safeSubtitles = [];
+    if (map['subtitles'] != null && map['subtitles'] is List) {
+      for (var item in map['subtitles']) {
+        try {
+          if (item is Map) {
+            safeSubtitles.add(SubtitleTrack.fromJson(Map<String, dynamic>.from(item)));
+          }
+        } catch (e) {
+          debugPrint('⚠️ [StreamLink] Skipped invalid subtitle track: $e');
+        }
+      }
+    }
+
+    // 🚀 THE FIX: Applied to audio tracks as well just in case!
+    List<AudioTrack> safeAudio = [];
+    if (map['audioTracks'] != null && map['audioTracks'] is List) {
+      for (var item in map['audioTracks']) {
+        try {
+          if (item is Map) {
+            safeAudio.add(AudioTrack.fromJson(Map<String, dynamic>.from(item)));
+          }
+        } catch (e) {
+          debugPrint('⚠️ [StreamLink] Skipped invalid audio track: $e');
+        }
+      }
+    }
+
     return StreamLink(
       url: streamUrl,
       quality: map['quality']?.toString() ?? 'Auto',
       sourceName: map['sourceName']?.toString() ?? 'Unknown Source',
       isM3U8: map['isM3U8'] as bool? ?? streamUrl.contains('.m3u8'),
       headers: Map<String, String>.from(map['headers'] as Map? ?? const {}),
-      subtitles: (map['subtitles'] as List<dynamic>? ?? const [])
-          .map((item) => SubtitleTrack.fromJson(item as Map<String, dynamic>))
-          .toList(),
-      audioTracks: (map['audioTracks'] as List<dynamic>? ?? const [])
-          .map((item) => AudioTrack.fromJson(item as Map<String, dynamic>))
-          .toList(),
+      subtitles: safeSubtitles,
+      audioTracks: safeAudio,
       isHls: map['isHls'] as bool? ?? streamUrl.contains('.m3u8'),
       isDefault: map['isDefault'] as bool? ?? false,
     );
